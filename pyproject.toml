@@ -1,0 +1,70 @@
+[build-system]
+requires = ["flit-core >= 3.8"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "ultralytics"
+version = "1.0.0"
+description = "Implementation of YOLOv8 Refactoring Version."
+readme = "README.md"
+requires-python = ">= 3.10"
+license.file = "LICENSE"
+authors = [
+  { name = "Lornatang", email = "liuchangyu1111@gmail.com" },
+]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+urls.homepage = "https://github.com/pypa/build"
+urls.changelog = "https://pypa-build.readthedocs.io/en/stable/changelog.html"
+
+dependencies = [
+  "packaging >= 19.0",
+  "pyproject_hooks",
+  # not actually a runtime dependency, only supplied as there is not "recommended dependency" support
+  'colorama; os_name == "nt"',
+  'importlib-metadata >= 4.6; python_full_version < "3.10.2"',  # Not required for 3.8+, but fixes a stdlib bug
+  'tomli >= 1.1.0; python_version < "3.11"',
+]
+
+[project.optional-dependencies]
+docs = [
+  "furo >= 2023.08.17",
+  "sphinx ~= 7.0",
+  "sphinx-argparse-cli >= 1.5",
+  "sphinx-autodoc-typehints >= 1.10",
+  "sphinx-issues >= 3.0.0",
+]
+test = [
+  "filelock >= 3",
+  "pytest >= 6.2.4",
+  "pytest-cov >= 2.12",
+  "pytest-mock >= 2",
+  "pytest-rerunfailures >= 9.1",
+  "pytest-xdist >= 1.34",
+  "wheel >= 0.36.0",
+  'setuptools >= 42.0.0; python_version < "3.10"',
+  'setuptools >= 56.0.0; python_version == "3.10"',
+  'setuptools >= 56.0.0; python_version == "3.11"',
+  'setuptools >= 67.8.0; python_version >= "3.12"',
+]
+typing = [
+  "importlib-metadata >= 5.1",
+  "mypy ~= 1.5.0",
+  "tomli",
+  "typing-extensions >= 3.7.4.3",
+]
+virtualenv = [
+  "virtualenv >= 20.0.35",
+]
+
+[project.scripts]
+pyproject-build = "build.__main__:entrypoint"
+
+[project.entry-points."pipx.run"]
+build = "build.__main__:entrypoint"

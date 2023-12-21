@@ -19,6 +19,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from .seed import init_seed
 import yaml
 from tqdm import tqdm as tqdm_original
 
