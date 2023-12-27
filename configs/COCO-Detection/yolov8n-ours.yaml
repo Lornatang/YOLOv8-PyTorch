@@ -1,0 +1,43 @@
+PROJECT_NAME: "yolov8"  # The repo name
+EXP_NAME: "YOLOv8n-COCO-Detection"  # The name of this experiment
+SEED: 42  # random number seed
+DEVICE_ID: "cuda"  # run device models
+
+MODEL:
+  IN_CHANNELS: 3  # number of input channels (RGB)
+  NUM_CLASSES: 1  # number of classes in the dataset
+  DEPTH_MULTIPLE: 0.33  # model depth multiple
+  WIDTH_MULTIPLE: 0.25  # layer channel multiple
+  MAX_CHANNELS: 1024  # maximum number of channels in any Conv2d layer
+
+  ACTIVATION: "silu"  # activation function
+
+  # YOLOv8.0
+  ARCH: [
+    # Backbone
+    [ -1, 1, "BasicConv2d", [ 64, 3, 2 ] ],
+    [ -1, 1, "BasicConv2d", [ 128, 3, 2 ] ],
+    [ -1, 3, "C2f", [ 128, 1, 0.5, True ] ],
+    [ -1, 1, "BasicConv2d", [ 256, 3, 2 ] ],
+    [ -1, 6, "C2f", [ 256, 1, 0.5, True ] ],
+    [ -1, 1, "BasicConv2d", [ 512, 3, 2 ] ],
+    [ -1, 6, "C2f", [ 512, 1, 0.5, True ] ],
+    [ -1, 1, "BasicConv2d", [ 1024, 3, 2 ] ],
+    [ -1, 3, "C2f", [ 1024, 1, 0.5, True ] ],
+    [ -1, 1, "SPPF", [ 1024, 5 ] ],
+    # Neck
+    [ -1, 1, "nn.Upsample", [ "None", 2, "nearest" ] ],
+    [ [ -1, 6 ], 1, "Concat", [ 1 ] ],
+    [ -1, 3, "C2f", [ 512, 1, 0.5, False ] ],
+    [ -1, 1, "nn.Upsample", [ "None", 2, "nearest" ] ],
+    [ [ -1, 4 ], 1, "Concat", [ 1 ] ],
+    [ -1, 3, "C2f", [ 256, 1, 0.5, False ] ],
+    [ -1, 1, "BasicConv2d", [ 256, 3, 2 ] ],
+    [ [ -1, 12 ], 1, "Concat", [ 1 ] ],
+    [ -1, 3, "C2f", [ 512, 1, 0.5, False ] ],
+    [ -1, 1, "BasicConv2d", [ 512, 3, 2 ] ],
+    [ [ -1, 9 ], 1, "Concat", [ 1 ] ],
+    [ -1, 3, "C2f", [ 1024, 1, 0.5, False ] ],
+    # Head
+    [ [ 15, 18, 21 ], 1, "Detect", [ "num_classes" ] ]
+  ]

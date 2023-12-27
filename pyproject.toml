@@ -3,7 +3,7 @@ requires = ["flit-core >= 3.8"]
 build-backend = "flit_core.buildapi"
 
 [project]
-name = "ultralytics"
+name = "yolov8"
 version = "1.0.0"
 description = "Implementation of YOLOv8 Refactoring Version."
 readme = "README.md"

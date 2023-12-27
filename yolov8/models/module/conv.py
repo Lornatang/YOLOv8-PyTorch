@@ -11,33 +11,60 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from torch import nn
+from typing import Optional
+
+from torch import nn, Tensor
+
+SUPPORTED_ACTIVATION = {
+    "silu": nn.SiLU(inplace=True),
+    "relu": nn.ReLU(inplace=True),
+    "leaky_relu": nn.LeakyReLU(0.1, inplace=True),
+    "hard_swish": nn.Hardswish(inplace=True)
+}
 
 
-def _autopad(k, p=None, d=1):  # kernel, padding, dilation
-    """Pad to 'same' shape outputs."""
-    if d > 1:
-        k = d * (k - 1) + 1 if isinstance(k, int) else [d * (x - 1) + 1 for x in k]  # actual kernel-size
-    if p is None:
-        p = k // 2 if isinstance(k, int) else [x // 2 for x in k]  # auto-pad
-    return p
+class BasicConv2d(nn.Module):
+    """A basic version of basic convolution, normalization and activation.
 
+    Args:
+    """
 
-class Conv(nn.Module):
-    """Standard convolution with args(ch_in, ch_out, kernel, stride, padding, groups, dilation, activation)."""
-    default_act = nn.SiLU(inplace=True)  # default activation
-
-    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, d=1, act=True):
-        """Initialize Conv layer with given arguments including activation."""
+    def __init__(
+            self,
+            in_channels: int,
+            out_channels: int,
+            kernel_size: int = 3,
+            stride: int = 1,
+            padding: Optional[int] = None,
+            groups: int = 1,
+            bias: bool = False,
+            activation_type: str = "silu",
+    ) -> None:
         super().__init__()
-        self.conv = nn.Conv2d(c1, c2, k, s, _autopad(k, p, d), groups=g, dilation=d, bias=False)
-        self.bn = nn.BatchNorm2d(c2, eps=0.001, momentum=0.03)
-        self.act = self.default_act if act is True else act if isinstance(act, nn.Module) else nn.Identity()
+        if padding is None:
+            padding = kernel_size // 2
 
-    def forward(self, x):
-        """Apply convolution, batch normalization and activation to input tensor."""
+        self.conv = nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            groups=groups,
+            bias=bias,
+        )
+        self.bn = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0.03)
+        if activation_type is not None:
+            self.act = SUPPORTED_ACTIVATION.get(activation_type)
+
+        self.activation_type = activation_type
+
+    def forward(self, x: Tensor) -> Tensor:
+        if self.activation_type is None:
+            return self.bn(self.conv(x))
         return self.act(self.bn(self.conv(x)))
 
-    def forward_fuse(self, x):
-        """Perform transposed convolution of 2D data."""
+    def forward_fuse(self, x: Tensor) -> Tensor:
+        if self.activation_type is None:
+            return self.conv(x)
         return self.act(self.conv(x))

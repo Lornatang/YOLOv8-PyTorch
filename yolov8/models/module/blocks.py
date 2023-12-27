@@ -11,127 +11,155 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import torch
-from torch import nn
+from typing import Optional
 
-from .conv import Conv
+import torch
+from torch import nn, Tensor
+
+from .conv import BasicConv2d
+
+__all__ = [
+    "Bottleneck", "C2f", "SPPF",
+]
 
 
 class Bottleneck(nn.Module):
-    """Standard bottleneck."""
+    r"""Implementation of Bottleneck block."""
 
-    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
-        """Initializes a bottleneck module with given input/output channels, shortcut option, group, kernels, and
-        expansion.
+    def __init__(
+            self,
+            input_channels: int,
+            output_channels: int,
+            kernel_size: Optional[int] = 3,
+            groups: Optional[int] = 1,
+            expansion: Optional[float] = 0.5,
+            shortcut: Optional[bool] = True,
+    ) -> None:
+        r"""Initializes a bottleneck module with given input/output channels, shortcut option, group, kernels, and expansion.
+
+        Args:
+            input_channels (int): The number of input channels.
+            output_channels (int): The number of output channels.
+            kernel_size (Optional[int], optional): Size of the convolving kernel. Defaults to 3.
+            groups (Optional[int], optional): Number of groups for the convolutions. Defaults to 1.
+            shortcut (Optional[bool], optional): Whether to use a shortcut connection. Defaults to True.
+            expansion (Optional[float], optional): Expansion factor for the hidden layer. Defaults to 0.5.
         """
         super().__init__()
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, k[0], 1)
-        self.cv2 = Conv(c_, c2, k[1], 1, g=g)
-        self.add = shortcut and c1 == c2
+        hidden_channels = int(output_channels * expansion)  # hidden channels
+        self.conv1 = BasicConv2d(input_channels, hidden_channels, kernel_size, 1)
+        self.conv2 = BasicConv2d(hidden_channels, output_channels, kernel_size, 1, groups=groups)
+        self.add = shortcut and input_channels == output_channels
 
-    def forward(self, x):
-        """'forward()' applies the YOLO FPN to input data."""
-        return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Forward pass for the bottleneck layer.
 
+        Args:
+            x (Tensor): The input tensor.
 
-class Concat(nn.Module):
-    """Concatenate a list of tensors along dimension."""
-
-    def __init__(self, dimension=1):
-        """Concatenates a list of tensors along a specified dimension."""
-        super().__init__()
-        self.d = dimension
-
-    def forward(self, x):
-        """Forward pass for the YOLOv8 mask Proto module."""
-        return torch.cat(x, self.d)
+        Returns:
+            Tensor: The output tensor.
+        """
+        return x + self.conv2(self.conv1(x)) if self.add else self.conv2(self.conv1(x))
 
 
 class C2f(nn.Module):
-    """Faster Implementation of CSP Bottleneck with 2 convolutions."""
+    r"""Faster Implementation of CSP Bottleneck with 2 convolutions."""
 
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
-        """Initialize CSP bottleneck layer with two convolutions with arguments ch_in, ch_out, number, shortcut, groups,
+    def __init__(
+            self,
+            in_channels: int,
+            out_channels: int,
+            groups: int = 1,
+            expansion: float = 0.5,
+            num_layers: int = 1,
+            shortcut: bool = False,
+    ) -> None:
+        """
+        Initialize CSP bottleneck layer with two convolutions with arguments ch_in, ch_out, number, shortcut, groups,
         expansion.
+
+        Args:
+            in_channels (int): The number of input channels.
+            out_channels (int): The number of output channels.
+            groups (int, optional): Number of groups for the convolutions. Defaults to 1.
+            expansion (float, optional): Expansion factor for the hidden layer. Defaults to 0.5.
+            num_layers (int, optional): The number of Bottleneck layers. Defaults to 1.
+            shortcut (bool, optional): Whether to use a shortcut connection. Defaults to False.
         """
         super().__init__()
-        self.c = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
-        self.cv2 = Conv((2 + n) * self.c, c2, 1)  # optional act=FReLU(c2)
-        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
+        self.hidden_channels = int(out_channels * expansion)
+        self.basic_conv1 = BasicConv2d(in_channels, 2 * self.hidden_channels, 1, 1)
+        self.basic_conv2 = BasicConv2d((2 + num_layers) * self.hidden_channels, out_channels, 1)
+        self.module_list = nn.ModuleList(
+            Bottleneck(self.hidden_channels,
+                       self.hidden_channels,
+                       3,
+                       groups,
+                       1.0,
+                       shortcut) for _ in range(num_layers))
 
-    def forward(self, x):
-        """Forward pass through C2f layer."""
-        y = list(self.cv1(x).chunk(2, 1))
-        y.extend(m(y[-1]) for m in self.m)
-        return self.cv2(torch.cat(y, 1))
-
-    def forward_split(self, x):
-        """Forward pass using split() instead of chunk()."""
-        y = list(self.cv1(x).split((self.c, self.c), 1))
-        y.extend(m(y[-1]) for m in self.m)
-        return self.cv2(torch.cat(y, 1))
-
-class DFL(nn.Module):
-    """
-    Integral module of Distribution Focal Loss (DFL).
-
-    Proposed in Generalized Focal Loss https://ieeexplore.ieee.org/document/9792391
-    """
-
-    def __init__(self, c1=16):
-        """Initialize a convolutional layer with a given number of input channels."""
-        super().__init__()
-        self.conv = nn.Conv2d(c1, 1, 1, bias=False).requires_grad_(False)
-        x = torch.arange(c1, dtype=torch.float)
-        self.conv.weight.data[:] = nn.Parameter(x.view(1, c1, 1, 1))
-        self.c1 = c1
-
-    def forward(self, x):
-        """Applies a transformer layer on input tensor 'x' and returns a tensor."""
-        b, c, a = x.shape  # batch, channels, anchors
-        return self.conv(x.view(b, 4, self.c1, a).transpose(2, 1).softmax(1)).view(b, 4, a)
-        # return self.conv(x.view(b, self.c1, 4, a).softmax(1)).view(b, 4, a)
-
-
-class Proto(nn.Module):
-    """YOLOv8 mask Proto module for segmentation models."""
-
-    def __init__(self, c1, c_=256, c2=32):
+    def forward(self, x: Tensor) -> Tensor:
         """
-        Initializes the YOLOv8 mask Proto module with specified number of protos and masks.
+        Forward pass through C2f layer.
 
-        Input arguments are ch_in, number of protos, number of masks.
+        Args:
+            x (Tensor): The input tensor.
+
+        Returns:
+            Tensor: The output tensor.
         """
-        super().__init__()
-        self.cv1 = Conv(c1, c_, k=3)
-        self.upsample = nn.ConvTranspose2d(c_, c_, 2, 2, 0, bias=True)  # nn.Upsample(scale_factor=2, mode='nearest')
-        self.cv2 = Conv(c_, c_, k=3)
-        self.cv3 = Conv(c_, c2)
+        y = list(self.basic_conv1(x).chunk(2, 1))
+        y.extend(module(y[-1]) for module in self.module_list)
+        return self.basic_conv2(torch.cat(y, 1))
 
-    def forward(self, x):
-        """Performs a forward pass through layers using an upsampled input image."""
-        return self.cv3(self.cv2(self.upsample(self.cv1(x))))
+    def forward_split(self, x: Tensor) -> Tensor:
+        """
+        Forward pass using split() instead of chunk().
+
+        Args:
+            x (Tensor): The input tensor.
+
+        Returns:
+            Tensor: The output tensor.
+        """
+        y = list(self.basic_conv1(x).split((self.hidden_channels, self.hidden_channels), 1))
+        y.extend(module(y[-1]) for module in self.module_list)
+        return self.basic_conv2(torch.cat(y, 1))
+
 
 class SPPF(nn.Module):
-    """Spatial Pyramid Pooling - Fast (SPPF) layer for YOLOv5 by Glenn Jocher."""
+    r"""Spatial Pyramid Pooling"""
 
-    def __init__(self, c1, c2, k=5):
-        """
-        Initializes the SPPF layer with given input/output channels and kernel size.
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int = 5) -> None:
+        r"""Initializes the SPPF layer with given input/output channels and kernel size.
 
-        This module is equivalent to SPP(k=(5, 9, 13)).
+        Args:
+            in_channels (int): The number of input channels.
+            out_channels (int): The number of output channels.
+            kernel_size (int, optional): Size of the involving kernel. Defaults to 5.
+
+        Note:
+            This module is equivalent to SPP(k=(5, 9, 13)).
         """
         super().__init__()
-        c_ = c1 // 2  # hidden channels
-        self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = Conv(c_ * 4, c2, 1, 1)
-        self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
+        hidden_channels = in_channels // 2  # hidden channels
+        self.basic_conv1 = BasicConv2d(in_channels, hidden_channels, 1, 1)
+        self.basic_conv2 = BasicConv2d(hidden_channels * 4, out_channels, 1, 1)
+        self.module_list = nn.MaxPool2d(kernel_size=kernel_size, stride=1, padding=kernel_size // 2)
 
-    def forward(self, x):
-        """Forward pass through Ghost Convolution block."""
-        x = self.cv1(x)
-        y1 = self.m(x)
-        y2 = self.m(y1)
-        return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Forward pass through the SPPF layer.
+
+        Args:
+            x (Tensor): The input tensor.
+
+        Returns:
+            Tensor: The output tensor after applying the SPPF layer.
+        """
+        x = self.basic_conv1(x)
+        y1 = self.module_list(x)
+        y2 = self.module_list(y1)
+        return self.basic_conv2(torch.cat((x, y1, y2, self.module_list(y2)), 1))

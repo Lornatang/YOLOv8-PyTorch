@@ -1,9 +1,8 @@
-.idea/
+.idea
 datasets/coco128
 
 runs
 wandb
-
 
 *.pt
 *.pth

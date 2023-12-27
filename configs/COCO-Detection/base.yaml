@@ -1,4 +1,0 @@
-PROJECT_NAME: "yolov8"  # The repo name
-EXP_NAME: "COCO-Detection"  # The name of this experiment
-SEED: 42  # random number seed
-DEVICE_ID: "cuda"  # run device models

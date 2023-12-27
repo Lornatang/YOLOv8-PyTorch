@@ -14,11 +14,45 @@
 import math
 
 import torch
-import torch.nn as nn
+from torch import nn, Tensor
 
-from ultralytics.utils.tal import dist2bbox, make_anchors
-from .blocks import DFL
-from .conv import Conv
+from yolov8.utils.common import convert_letterbox_to_bbox, make_anchors
+from .conv import BasicConv2d
+
+__all__ = [
+    "DFL", "Detect",
+]
+
+
+class DFL(nn.Module):
+    r"""Integral module of Distribution Focal Loss (DFL).
+
+    This module is proposed in the paper "Generalized Focal Loss" which can be found at https://ieeexplore.ieee.org/document/9792391
+    """
+
+    def __init__(self, in_channels: int = 16):
+        r"""Initialize a convolutional layer with a given number of input channels.
+
+        Args:
+            in_channels (int, optional): The number of input channels. Default is 16.
+        """
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels, 1, 1, bias=False).requires_grad_(False)
+        x = torch.arange(in_channels, dtype=torch.float)
+        self.conv.weight.data[:] = nn.Parameter(x.view(1, in_channels, 1, 1))
+        self.in_channels = in_channels
+
+    def forward(self, x: Tensor) -> Tensor:
+        r"""Applies a transformer layer on input tensor 'x' and returns a tensor.
+
+        Args:
+            x (Tensor): The input tensor.
+
+        Returns:
+            Tensor: The transformed tensor.
+        """
+        batch, _, anchors = x.shape
+        return self.conv(x.view(batch, 4, self.in_channels, anchors).transpose(2, 1).softmax(1)).view(batch, 4, anchors)
 
 
 class Detect(nn.Module):
@@ -39,8 +73,8 @@ class Detect(nn.Module):
         self.stride = torch.zeros(self.nl)  # strides computed during build
         c2, c3 = max((16, ch[0] // 4, self.reg_max * 4)), max(ch[0], min(self.nc, 100))  # channels
         self.cv2 = nn.ModuleList(
-            nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch)
-        self.cv3 = nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, self.nc, 1)) for x in ch)
+            nn.Sequential(BasicConv2d(x, c2, 3), BasicConv2d(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch)
+        self.cv3 = nn.ModuleList(nn.Sequential(BasicConv2d(x, c3, 3), BasicConv2d(c3, c3, 3), nn.Conv2d(c3, self.nc, 1)) for x in ch)
         self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
 
     def forward(self, x):
@@ -60,7 +94,7 @@ class Detect(nn.Module):
             cls = x_cat[:, self.reg_max * 4:]
         else:
             box, cls = x_cat.split((self.reg_max * 4, self.nc), 1)
-        dbox = dist2bbox(self.dfl(box), self.anchors.unsqueeze(0), xywh=True, dim=1) * self.strides
+        dbox = convert_letterbox_to_bbox(self.dfl(box), self.anchors.unsqueeze(0), xywh=True, dim=1) * self.strides
 
         if self.export and self.format in ('tflite', 'edgetpu'):
             # Normalize xywh with image size to mitigate quantization error of TFLite integer models as done in YOLOv5:
