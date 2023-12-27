@@ -16,7 +16,7 @@ import math
 import torch
 from torch import nn, Tensor
 
-from yolov8.utils.common import convert_letterbox_to_bbox, make_anchors
+from yolov8_pytorch.utils.common import convert_letterbox_to_bbox, make_anchors
 from .conv import BasicConv2d
 
 __all__ = [

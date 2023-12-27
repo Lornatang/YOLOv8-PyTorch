@@ -4,6 +4,7 @@ import inspect
 import sys
 from pathlib import Path
 from typing import Union
+from omegaconf import OmegaConf
 
 from ultralytics.cfg import TASK2DATA, get_cfg, get_save_dir
 from ultralytics.hub.utils import HUB_WEB_ROOT
@@ -122,10 +123,12 @@ class Model(nn.Module):
             model (BaseModel): Customized model.
             verbose (bool): display model info on load
         """
-        cfg_dict = yaml_model_load(cfg)
         self.cfg = cfg
-        self.task = task or guess_model_task(cfg_dict)
-        self.model = (model or self._smart_load('model'))(cfg_dict, verbose=verbose and RANK == -1)  # build model
+        self.task = "detect"
+        config = OmegaConf.load(cfg)
+        config = OmegaConf.create(config)
+        model_config = config.MODEL
+        self.model = (model or self._smart_load('model'))(model_config, verbose=verbose and RANK == -1)  # build model
         self.overrides['model'] = self.cfg
         self.overrides['task'] = self.task
 

@@ -3,7 +3,7 @@
 from .tasks import (BaseModel, ClassificationModel, SegmentationModel, attempt_load_one_weight,
                     attempt_load_weights, guess_model_scale, guess_model_task, parse_model, torch_safe_load,
                     yaml_model_load)
-from yolov8.models.detect_model import DetectionModel
+from yolov8_pytorch.models.detect_model import DetectionModel
 
 __all__ = ('attempt_load_one_weight', 'attempt_load_weights', 'parse_model', 'yaml_model_load', 'guess_model_task',
            'guess_model_scale', 'torch_safe_load', 'DetectionModel', 'SegmentationModel', 'ClassificationModel',

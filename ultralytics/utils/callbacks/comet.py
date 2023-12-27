@@ -83,7 +83,7 @@ def _create_experiment(args):
             'log_confusion_matrix_on_eval': _should_log_confusion_matrix(),
             'log_image_predictions': _should_log_image_predictions(),
             'max_image_predictions': _get_max_image_predictions_to_log(), })
-        experiment.log_other('Created from', 'yolov8')
+        experiment.log_other('Created from', 'yolov8_pytorch')
 
     except Exception as e:
         LOGGER.warning(f'WARNING ⚠️ Comet installed but not initialized correctly, not logging this run. {e}')

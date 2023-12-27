@@ -11,7 +11,7 @@ from ultralytics.models import yolo
 from ultralytics.utils import LOGGER, RANK
 from ultralytics.utils.plotting import plot_images, plot_labels, plot_results
 from ultralytics.utils.torch_utils import de_parallel, torch_distributed_zero_first
-from yolov8.models.detect_model import DetectionModel
+from yolov8_pytorch.models.detect_model import DetectionModel
 
 
 class DetectionTrainer(BaseTrainer):

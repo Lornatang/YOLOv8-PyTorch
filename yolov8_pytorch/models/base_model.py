@@ -18,8 +18,8 @@ import thop
 from torch import nn, Tensor
 
 from .module import BasicConv2d, Detect
-from yolov8.utils.misc import fuse_conv_and_bn, model_summary, time_sync
-from yolov8.utils.visualizer import generate_feature_maps, save_feature_maps
+from yolov8_pytorch.utils.misc import fuse_conv_and_bn, model_summary, time_sync
+from yolov8_pytorch.utils.visualizer import generate_feature_maps, save_feature_maps
 
 logger = logging.getLogger(__name__)
 

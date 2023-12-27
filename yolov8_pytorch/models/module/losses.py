@@ -15,9 +15,9 @@ import torch
 from torch import nn, Tensor
 from torch.nn import functional as F_torch
 
-from yolov8.utils.common import convert_bbox_to_letterbox, convert_letterbox_to_bbox, make_anchors, TaskAlignedAssigner
-from yolov8.utils.metrics import bbox_iou
-from yolov8.utils.ops import xywh2xyxy
+from yolov8_pytorch.utils.common import convert_bbox_to_letterbox, convert_letterbox_to_bbox, make_anchors, TaskAlignedAssigner
+from yolov8_pytorch.utils.metrics import bbox_iou
+from yolov8_pytorch.utils.ops import xywh2xyxy
 
 __all__ = [
     "VarifocalLoss", "FocalLoss", "BboxLoss", "DetectionLoss"

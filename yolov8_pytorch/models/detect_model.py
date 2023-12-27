@@ -17,7 +17,7 @@ import torch
 from omegaconf import DictConfig
 from torch import nn
 
-from yolov8.utils.ops import scale_image
+from yolov8_pytorch.utils.ops import scale_image
 from .base_model import BaseModel
 from .module import Detect, v8DetectionLoss
 from .utils import create_model_from_yaml
