@@ -38,7 +38,6 @@ class DetectionModel(BaseModel):
         m = self.model[-1]  # Detect()
         if isinstance(m, Detect):
             s = 256  # 2x min stride
-            m.inplace = self.inplace
             forward = lambda x: self.forward(x)
             m.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, model_config.IN_CHANNELS, s, s))])  # forward
             self.stride = m.stride

@@ -79,7 +79,7 @@ class BaseModel(nn.Module):
             if profile:
                 self._profile_one_layer(layer, input_tensor, layer_times)
             input_tensor = layer(input_tensor)  # run
-            output_tensors.append(input_tensor if layer.i in self.save else None)  # save output
+            output_tensors.append(input_tensor if layer.i in self.save_list else None)  # save output
             if visualize:
                 feature_maps = generate_feature_maps(input_tensor, layer.type, layer.i)
                 save_feature_maps(feature_maps, layer.type, layer.i, visualize)
@@ -98,8 +98,8 @@ class BaseModel(nn.Module):
             Tensor: The output of the model after augmentation.
         """
         if not hasattr(self, "augment"):
-            logger.warning(f'{self.__class__.__name__} does not support augmented inference. '
-                           'Falling back to single-scale inference.')
+            logger.warning(f"{self.__class__.__name__} does not support augmented inference. "
+                           "Falling back to single-scale inference.")
             return self._predict_once(input_tensor)
 
     def _profile_one_layer(self, layer: nn.Module, input_data: Tensor, computation_times: list) -> None:
