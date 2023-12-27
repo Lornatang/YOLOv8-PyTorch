@@ -2,8 +2,8 @@
 
 from ultralytics.engine.model import Model
 from ultralytics.models import yolo  # noqa
-from ultralytics.nn.tasks import ClassificationModel, DetectionModel, PoseModel, SegmentationModel
-
+from ultralytics.nn.tasks import ClassificationModel, PoseModel, SegmentationModel
+from yolov8.models.detect_model import DetectionModel
 
 class YOLO(Model):
     """YOLO (You Only Look Once) object detection model."""
