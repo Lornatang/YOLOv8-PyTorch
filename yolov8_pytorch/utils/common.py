@@ -226,8 +226,7 @@ def select_highest_overlaps(mask_pos: Tensor, overlaps: Tensor, n_max_boxes: int
 
 
 class TaskAlignedAssigner(nn.Module):
-    """
-    A task-aligned assigner for object detection.
+    r"""A task-aligned assigner for object detection.
 
     This class assigns ground-truth (gt) objects to anchors based on the task-aligned metric, which combines both
     classification and localization information.
