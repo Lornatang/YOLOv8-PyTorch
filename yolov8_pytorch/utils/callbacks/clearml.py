@@ -2,12 +2,18 @@
 
 from yolov8_pytorch.utils import LOGGER, SETTINGS, TESTS_RUNNING
 
-assert not TESTS_RUNNING  # do not log pytest
-assert SETTINGS['clearml'] is True  # verify integration is enabled
-import clearml
-from clearml import Task
-from clearml.binding.frameworks.pytorch_bind import PatchPyTorchModelIO
-from clearml.binding.matplotlib_bind import PatchedMatplotlib
+try:
+    assert not TESTS_RUNNING  # do not log pytest
+    assert SETTINGS['clearml'] is True  # verify integration is enabled
+    import clearml
+    from clearml import Task
+    from clearml.binding.frameworks.pytorch_bind import PatchPyTorchModelIO
+    from clearml.binding.matplotlib_bind import PatchedMatplotlib
+
+    assert hasattr(clearml, '__version__')  # verify package is not directory
+
+except (ImportError, AssertionError):
+    clearml = None
 
 
 def _log_debug_samples(files, title='Debug Samples') -> None:
