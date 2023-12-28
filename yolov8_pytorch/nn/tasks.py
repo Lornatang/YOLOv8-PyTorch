@@ -646,6 +646,7 @@ def create_model_from_yaml(model_config: DictConfig, verbose: bool = False) -> [
             out_channels = sum(channels[x] for x in _from)
         elif _module in (Detect, Segment):
             _parameters.append([channels[x] for x in _from])
+            _parameters = _parameters[:2]
             if _module is Segment:
                 _parameters[2] = make_divisible(min(_parameters[2], max_channels) * width_multiple, 8)
         elif _module is RTDETRDecoder:  # special case, channels arg must be passed in index 1

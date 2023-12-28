@@ -74,7 +74,7 @@ class BaseValidator:
             args (SimpleNamespace): Configuration for the validator.
             _callbacks (dict): Dictionary to store various callback functions.
         """
-        self.args = get_cfg(overrides=args)
+        self.args = get_cfg()
         self.dataloader = dataloader
         self.pbar = pbar
         self.stride = None
