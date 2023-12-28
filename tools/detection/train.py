@@ -11,7 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from ultralytics import YOLO
+from yolov8_pytorch import YOLO
 
 # Load a model
 model = YOLO('configs/COCO-Detection/yolov8n.yaml').load('yolov8n.pt')  # build from YAML and transfer weights

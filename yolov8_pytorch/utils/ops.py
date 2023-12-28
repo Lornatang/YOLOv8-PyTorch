@@ -1,114 +1,131 @@
-# Copyright 2024 Apache License 2.0. All Rights Reserved.
-# Licensed under the Apache License, Version 2.0 (the "License");
-#   you may not use this file except in compliance with the License.
-#   You may obtain a copy of the License at
-#
-#       http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
-import logging
+# Ultralytics YOLO 🚀, AGPL-3.0 license
+
+import contextlib
 import math
+import re
 import time
-from typing import Union
 
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 import torchvision
-from torch import Tensor
-from torch.nn import functional as F_torch
 
-__all__ = [
-    "clip_boxes", "clip_coords", "convert_torch2numpy_batch", "non_max_suppression", "masks2segments", "scale_coords", "scale_image",
-    "scale_boxes", "segment2box", "xyxy2xywh", "xywh2xyxy",
-]
-
-logger = logging.getLogger(__name__)
+from yolov8_pytorch.utils import LOGGER
 
 
-def clip_boxes(boxes, shape):
+class Profile(contextlib.ContextDecorator):
     """
-    Takes a list of bounding boxes and a shape (height, width) and clips the bounding boxes to the shape.
+    YOLOv8 Profile class. Use as a decorator with @Profile() or as a context manager with 'with Profile():'.
+
+    Example:
+        ```python
+        from yolov8_pytorch.utils.ops import Profile
+
+        with Profile() as dt:
+            pass  # slow operation here
+
+        print(dt)  # prints "Elapsed time is 9.5367431640625e-07 s"
+        ```
+    """
+
+    def __init__(self, t=0.0):
+        """
+        Initialize the Profile class.
+
+        Args:
+            t (float): Initial time. Defaults to 0.0.
+        """
+        self.t = t
+        self.cuda = torch.cuda.is_available()
+
+    def __enter__(self):
+        """Start timing."""
+        self.start = self.time()
+        return self
+
+    def __exit__(self, type, value, traceback):  # noqa
+        """Stop timing."""
+        self.dt = self.time() - self.start  # delta-time
+        self.t += self.dt  # accumulate dt
+
+    def __str__(self):
+        """Returns a human-readable string representing the accumulated elapsed time in the profiler."""
+        return f'Elapsed time is {self.t} s'
+
+    def time(self):
+        """Get current time."""
+        if self.cuda:
+            torch.cuda.synchronize()
+        return time.time()
+
+
+def segment2box(segment, width=640, height=640):
+    """
+    Convert 1 segment label to 1 box label, applying inside-image constraint, i.e. (xy1, xy2, ...) to (xyxy).
 
     Args:
-        boxes (torch.Tensor): the bounding boxes to clip
-        shape (tuple): the shape of the image
+        segment (torch.Tensor): the segment label
+        width (int): the width of the image. Defaults to 640
+        height (int): The height of the image. Defaults to 640
 
     Returns:
-        (torch.Tensor | numpy.ndarray): Clipped boxes
+        (np.ndarray): the minimum and maximum x and y values of the segment.
     """
-    if isinstance(boxes, torch.Tensor):  # faster individually (WARNING: inplace .clamp_() Apple MPS bug)
-        boxes[..., 0] = boxes[..., 0].clamp(0, shape[1])  # x1
-        boxes[..., 1] = boxes[..., 1].clamp(0, shape[0])  # y1
-        boxes[..., 2] = boxes[..., 2].clamp(0, shape[1])  # x2
-        boxes[..., 3] = boxes[..., 3].clamp(0, shape[0])  # y2
-    else:  # np.array (faster grouped)
-        boxes[..., [0, 2]] = boxes[..., [0, 2]].clip(0, shape[1])  # x1, x2
-        boxes[..., [1, 3]] = boxes[..., [1, 3]].clip(0, shape[0])  # y1, y2
-    return boxes
+    # Convert 1 segment label to 1 box label, applying inside-image constraint, i.e. (xy1, xy2, ...) to (xyxy)
+    x, y = segment.T  # segment xy
+    inside = (x >= 0) & (y >= 0) & (x <= width) & (y <= height)
+    x, y, = x[inside], y[inside]
+    return np.array([x.min(), y.min(), x.max(), y.max()], dtype=segment.dtype) if any(x) else np.zeros(
+        4, dtype=segment.dtype)  # xyxy
 
 
-def clip_coords(coords, shape):
+def scale_boxes(img1_shape, boxes, img0_shape, ratio_pad=None, padding=True):
     """
-    Clip line coordinates to the image boundaries.
+    Rescales bounding boxes (in the format of xyxy) from the shape of the image they were originally specified in
+    (img1_shape) to the shape of a different image (img0_shape).
 
     Args:
-        coords (torch.Tensor | numpy.ndarray): A list of line coordinates.
-        shape (tuple): A tuple of integers representing the size of the image in the format (height, width).
+        img1_shape (tuple): The shape of the image that the bounding boxes are for, in the format of (height, width).
+        boxes (torch.Tensor): the bounding boxes of the objects in the image, in the format of (x1, y1, x2, y2)
+        img0_shape (tuple): the shape of the target image, in the format of (height, width).
+        ratio_pad (tuple): a tuple of (ratio, pad) for scaling the boxes. If not provided, the ratio and pad will be
+            calculated based on the size difference between the two images.
+        padding (bool): If True, assuming the boxes is based on image augmented by yolo style. If False then do regular
+            rescaling.
 
     Returns:
-        (torch.Tensor | numpy.ndarray): Clipped coordinates
+        boxes (torch.Tensor): The scaled bounding boxes, in the format of (x1, y1, x2, y2)
     """
-    if isinstance(coords, torch.Tensor):  # faster individually (WARNING: inplace .clamp_() Apple MPS bug)
-        coords[..., 0] = coords[..., 0].clamp(0, shape[1])  # x
-        coords[..., 1] = coords[..., 1].clamp(0, shape[0])  # y
-    else:  # np.array (faster grouped)
-        coords[..., 0] = coords[..., 0].clip(0, shape[1])  # x
-        coords[..., 1] = coords[..., 1].clip(0, shape[0])  # y
-    return coords
+    if ratio_pad is None:  # calculate from img0_shape
+        gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
+        pad = round((img1_shape[1] - img0_shape[1] * gain) / 2 - 0.1), round(
+            (img1_shape[0] - img0_shape[0] * gain) / 2 - 0.1)  # wh padding
+    else:
+        gain = ratio_pad[0][0]
+        pad = ratio_pad[1]
+
+    if padding:
+        boxes[..., [0, 2]] -= pad[0]  # x padding
+        boxes[..., [1, 3]] -= pad[1]  # y padding
+    boxes[..., :4] /= gain
+    return clip_boxes(boxes, img0_shape)
 
 
-def convert_torch2numpy_batch(batch: torch.Tensor) -> np.ndarray:
+def make_divisible(x, divisor):
     """
-    Convert a batch of FP32 torch tensors (0.0-1.0) to a NumPy uint8 array (0-255), changing from BCHW to BHWC layout.
+    Returns the nearest number that is divisible by the given divisor.
 
     Args:
-        batch (torch.Tensor): Input tensor batch of shape (Batch, Channels, Height, Width) and dtype torch.float32.
+        x (int): The number to make divisible.
+        divisor (int | torch.Tensor): The divisor.
 
     Returns:
-        (np.ndarray): Output NumPy array batch of shape (Batch, Height, Width, Channels) and dtype uint8.
+        (int): The nearest number divisible by the divisor.
     """
-    return (batch.permute(0, 2, 3, 1).contiguous() * 255).clamp(0, 255).to(torch.uint8).cpu().numpy()
-
-
-def masks2segments(masks, strategy='largest'):
-    """
-    It takes a list of masks(n,h,w) and returns a list of segments(n,xy)
-
-    Args:
-        masks (torch.Tensor): the output of the model, which is a tensor of shape (batch_size, 160, 160)
-        strategy (str): 'concat' or 'largest'. Defaults to largest
-
-    Returns:
-        segments (List): list of segment masks
-    """
-    segments = []
-    for x in masks.int().cpu().numpy().astype('uint8'):
-        c = cv2.findContours(x, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
-        if c:
-            if strategy == 'concat':  # concatenate all segments
-                c = np.concatenate([x.reshape(-1, 2) for x in c])
-            elif strategy == 'largest':  # select largest segment
-                c = np.array(c[np.array([len(x) for x in c]).argmax()]).reshape(-1, 2)
-        else:
-            c = np.zeros((0, 2))  # no segments found
-        segments.append(c.astype('float32'))
-    return segments
+    if isinstance(divisor, torch.Tensor):
+        divisor = int(divisor.max())  # to int
+    return math.ceil(x / divisor) * divisor
 
 
 def non_max_suppression(
@@ -235,156 +252,87 @@ def non_max_suppression(
 
         output[xi] = x[i]
         if (time.time() - t) > time_limit:
-            logger.warning(f'WARNING ⚠️ NMS time limit {time_limit:.3f}s exceeded')
+            LOGGER.warning(f'WARNING ⚠️ NMS time limit {time_limit:.3f}s exceeded')
             break  # time limit exceeded
 
     return output
 
 
-def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None, normalize=False, padding=True):
+def clip_boxes(boxes, shape):
     """
-    Rescale segment coordinates (xy) from img1_shape to img0_shape.
+    Takes a list of bounding boxes and a shape (height, width) and clips the bounding boxes to the shape.
 
     Args:
-        img1_shape (tuple): The shape of the image that the coords are from.
-        coords (torch.Tensor): the coords to be scaled of shape n,2.
-        img0_shape (tuple): the shape of the image that the segmentation is being applied to.
-        ratio_pad (tuple): the ratio of the image size to the padded image size.
-        normalize (bool): If True, the coordinates will be normalized to the range [0, 1]. Defaults to False.
-        padding (bool): If True, assuming the boxes is based on image augmented by yolo style. If False then do regular
-            rescaling.
+        boxes (torch.Tensor): the bounding boxes to clip
+        shape (tuple): the shape of the image
 
     Returns:
-        coords (torch.Tensor): The scaled coordinates.
+        (torch.Tensor | numpy.ndarray): Clipped boxes
     """
-    if ratio_pad is None:  # calculate from img0_shape
-        gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
-        pad = (img1_shape[1] - img0_shape[1] * gain) / 2, (img1_shape[0] - img0_shape[0] * gain) / 2  # wh padding
-    else:
-        gain = ratio_pad[0][0]
-        pad = ratio_pad[1]
+    if isinstance(boxes, torch.Tensor):  # faster individually (WARNING: inplace .clamp_() Apple MPS bug)
+        boxes[..., 0] = boxes[..., 0].clamp(0, shape[1])  # x1
+        boxes[..., 1] = boxes[..., 1].clamp(0, shape[0])  # y1
+        boxes[..., 2] = boxes[..., 2].clamp(0, shape[1])  # x2
+        boxes[..., 3] = boxes[..., 3].clamp(0, shape[0])  # y2
+    else:  # np.array (faster grouped)
+        boxes[..., [0, 2]] = boxes[..., [0, 2]].clip(0, shape[1])  # x1, x2
+        boxes[..., [1, 3]] = boxes[..., [1, 3]].clip(0, shape[0])  # y1, y2
+    return boxes
 
-    if padding:
-        coords[..., 0] -= pad[0]  # x padding
-        coords[..., 1] -= pad[1]  # y padding
-    coords[..., 0] /= gain
-    coords[..., 1] /= gain
-    coords = clip_coords(coords, img0_shape)
-    if normalize:
-        coords[..., 0] /= img0_shape[1]  # width
-        coords[..., 1] /= img0_shape[0]  # height
+
+def clip_coords(coords, shape):
+    """
+    Clip line coordinates to the image boundaries.
+
+    Args:
+        coords (torch.Tensor | numpy.ndarray): A list of line coordinates.
+        shape (tuple): A tuple of integers representing the size of the image in the format (height, width).
+
+    Returns:
+        (torch.Tensor | numpy.ndarray): Clipped coordinates
+    """
+    if isinstance(coords, torch.Tensor):  # faster individually (WARNING: inplace .clamp_() Apple MPS bug)
+        coords[..., 0] = coords[..., 0].clamp(0, shape[1])  # x
+        coords[..., 1] = coords[..., 1].clamp(0, shape[0])  # y
+    else:  # np.array (faster grouped)
+        coords[..., 0] = coords[..., 0].clip(0, shape[1])  # x
+        coords[..., 1] = coords[..., 1].clip(0, shape[0])  # y
     return coords
 
 
-def scale_boxes(img1_shape, boxes, img0_shape, ratio_pad=None, padding=True):
+def scale_image(masks, im0_shape, ratio_pad=None):
     """
-    Rescales bounding boxes (in the format of xyxy) from the shape of the image they were originally specified in
-    (img1_shape) to the shape of a different image (img0_shape).
+    Takes a mask, and resizes it to the original image size.
 
     Args:
-        img1_shape (tuple): The shape of the image that the bounding boxes are for, in the format of (height, width).
-        boxes (torch.Tensor): the bounding boxes of the objects in the image, in the format of (x1, y1, x2, y2)
-        img0_shape (tuple): the shape of the target image, in the format of (height, width).
-        ratio_pad (tuple): a tuple of (ratio, pad) for scaling the boxes. If not provided, the ratio and pad will be
-            calculated based on the size difference between the two images.
-        padding (bool): If True, assuming the boxes is based on image augmented by yolo style. If False then do regular
-            rescaling.
+        masks (np.ndarray): resized and padded masks/images, [h, w, num]/[h, w, 3].
+        im0_shape (tuple): the original image shape
+        ratio_pad (tuple): the ratio of the padding to the original image.
 
     Returns:
-        boxes (torch.Tensor): The scaled bounding boxes, in the format of (x1, y1, x2, y2)
+        masks (torch.Tensor): The masks that are being returned.
     """
-    if ratio_pad is None:  # calculate from img0_shape
-        gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
-        pad = round((img1_shape[1] - img0_shape[1] * gain) / 2 - 0.1), round(
-            (img1_shape[0] - img0_shape[0] * gain) / 2 - 0.1)  # wh padding
+    # Rescale coordinates (xyxy) from im1_shape to im0_shape
+    im1_shape = masks.shape
+    if im1_shape[:2] == im0_shape[:2]:
+        return masks
+    if ratio_pad is None:  # calculate from im0_shape
+        gain = min(im1_shape[0] / im0_shape[0], im1_shape[1] / im0_shape[1])  # gain  = old / new
+        pad = (im1_shape[1] - im0_shape[1] * gain) / 2, (im1_shape[0] - im0_shape[0] * gain) / 2  # wh padding
     else:
         gain = ratio_pad[0][0]
         pad = ratio_pad[1]
+    top, left = (int(round(pad[1] - 0.1)), int(round(pad[0] - 0.1)))  # y, x
+    bottom, right = (int(round(im1_shape[0] - pad[1] + 0.1)), int(round(im1_shape[1] - pad[0] + 0.1)))
 
-    if padding:
-        boxes[..., [0, 2]] -= pad[0]  # x padding
-        boxes[..., [1, 3]] -= pad[1]  # y padding
-    boxes[..., :4] /= gain
-    return clip_boxes(boxes, img0_shape)
+    if len(masks.shape) < 2:
+        raise ValueError(f'"len of masks shape" should be 2 or 3, but got {len(masks.shape)}')
+    masks = masks[top:bottom, left:right]
+    masks = cv2.resize(masks, (im0_shape[1], im0_shape[0]))
+    if len(masks.shape) == 2:
+        masks = masks[:, :, None]
 
-
-def scale_image(input_image: Tensor, scale_ratio: float = 1.0, retain_shape: bool = False, grid_size: int = 32):
-    """
-    Scales and pads an image tensor of shape img(batch_size,3,height,width) based on given scale_ratio and grid_size,
-    optionally retaining the original shape.
-
-    Args:
-        input_image (Tensor): The input image tensor to be scaled.
-        scale_ratio (float, optional): The ratio to scale the image. Defaults to 1.0.
-        retain_shape (bool, optional): Whether to retain the original shape of the image. Defaults to False.
-        grid_size (int, optional): The grid size for padding. Defaults to 32.
-
-    Returns:
-        Tensor: The scaled and padded image tensor.
-    """
-    # If the scale ratio is 1.0, return the original image
-    if scale_ratio == 1.0:
-        return input_image
-
-    # Get the height and width of the image
-    height, width = input_image.shape[2:]
-
-    # Calculate the new size of the image
-    new_size = (int(height * scale_ratio), int(width * scale_ratio))
-
-    # Resize the image using bilinear interpolation
-    input_image = F_torch.interpolate(input_image, size=new_size, mode="bilinear", align_corners=False)
-
-    # If not retaining the original shape, pad or crop the image
-    if not retain_shape:
-        height, width = (math.ceil(dim * scale_ratio / grid_size) * grid_size for dim in (height, width))
-
-    # Pad the image to the new size, using the ImageNet mean as padding value
-    return F_torch.pad(input_image, [0, width - new_size[1], 0, height - new_size[0]], value=0.447)
-
-
-def scale_masks(masks, shape, padding=True):
-    """
-    Rescale segment masks to shape.
-
-    Args:
-        masks (torch.Tensor): (N, C, H, W).
-        shape (tuple): Height and width.
-        padding (bool): If True, assuming the boxes is based on image augmented by yolo style. If False then do regular
-            rescaling.
-    """
-    mh, mw = masks.shape[2:]
-    gain = min(mh / shape[0], mw / shape[1])  # gain  = old / new
-    pad = [mw - shape[1] * gain, mh - shape[0] * gain]  # wh padding
-    if padding:
-        pad[0] /= 2
-        pad[1] /= 2
-    top, left = (int(round(pad[1] - 0.1)), int(round(pad[0] - 0.1))) if padding else (0, 0)  # y, x
-    bottom, right = (int(round(mh - pad[1] + 0.1)), int(round(mw - pad[0] + 0.1)))
-    masks = masks[..., top:bottom, left:right]
-
-    masks = F_torch.interpolate(masks, shape, mode='bilinear', align_corners=False)  # NCHW
     return masks
-
-
-def segment2box(segment, width=640, height=640):
-    """
-    Convert 1 segment label to 1 box label, applying inside-image constraint, i.e. (xy1, xy2, ...) to (xyxy).
-
-    Args:
-        segment (torch.Tensor): the segment label
-        width (int): the width of the image. Defaults to 640
-        height (int): The height of the image. Defaults to 640
-
-    Returns:
-        (np.ndarray): the minimum and maximum x and y values of the segment.
-    """
-    # Convert 1 segment label to 1 box label, applying inside-image constraint, i.e. (xy1, xy2, ...) to (xyxy)
-    x, y = segment.T  # segment xy
-    inside = (x >= 0) & (y >= 0) & (x <= width) & (y <= height)
-    x, y, = x[inside], y[inside]
-    return np.array([x.min(), y.min(), x.max(), y.max()], dtype=segment.dtype) if any(x) else np.zeros(
-        4, dtype=segment.dtype)  # xyxy
 
 
 def xyxy2xywh(x):
@@ -407,34 +355,25 @@ def xyxy2xywh(x):
     return y
 
 
-def xywh2xyxy(x: Union[np.ndarray, torch.Tensor]) -> Union[np.ndarray, torch.Tensor]:
-    r"""Convert bounding box coordinates from (center_x, center_y, width, height) format to (x1, y1, x2, y2) format where
-    (x1, y1) is the top-left corner and (x2, y2) is the bottom-right corner.
+def xywh2xyxy(x):
+    """
+    Convert bounding box coordinates from (x, y, width, height) format to (x1, y1, x2, y2) format where (x1, y1) is the
+    top-left corner and (x2, y2) is the bottom-right corner.
 
     Args:
-        x (np.ndarray | torch.Tensor): The input bounding box coordinates in (center_x, center_y, width, height) format.
+        x (np.ndarray | torch.Tensor): The input bounding box coordinates in (x, y, width, height) format.
 
     Returns:
         y (np.ndarray | torch.Tensor): The bounding box coordinates in (x1, y1, x2, y2) format.
     """
-    # Ensure the last dimension of the input is 4 (corresponding to center_x, center_y, width, height)
     assert x.shape[-1] == 4, f'input shape last dimension expected 4 but input shape is {x.shape}'
-
-    # Create an empty tensor or numpy array with the same shape and type as the input
-    y = torch.empty_like(x) if isinstance(x, torch.Tensor) else np.empty_like(x)
-
-    # Compute half of the width and height
-    half_width = x[..., 2] / 2
-    half_height = x[..., 3] / 2
-
-    # Compute the coordinates of the top-left corner (x1, y1)
-    y[..., 0] = x[..., 0] - half_width
-    y[..., 1] = x[..., 1] - half_height
-
-    # Compute the coordinates of the bottom-right corner (x2, y2)
-    y[..., 2] = x[..., 0] + half_width
-    y[..., 3] = x[..., 1] + half_height
-
+    y = torch.empty_like(x) if isinstance(x, torch.Tensor) else np.empty_like(x)  # faster than clone/copy
+    dw = x[..., 2] / 2  # half-width
+    dh = x[..., 3] / 2  # half-height
+    y[..., 0] = x[..., 0] - dw  # top left x
+    y[..., 1] = x[..., 1] - dh  # top left y
+    y[..., 2] = x[..., 0] + dw  # bottom right x
+    y[..., 3] = x[..., 1] + dh  # bottom right y
     return y
 
 
@@ -690,7 +629,7 @@ def process_mask_upsample(protos, masks_in, bboxes, shape):
     """
     c, mh, mw = protos.shape  # CHW
     masks = (masks_in @ protos.float().view(c, -1)).sigmoid().view(-1, mh, mw)
-    masks = F_torch.interpolate(masks[None], shape, mode='bilinear', align_corners=False)[0]  # CHW
+    masks = F.interpolate(masks[None], shape, mode='bilinear', align_corners=False)[0]  # CHW
     masks = crop_mask(masks, bboxes)  # CHW
     return masks.gt_(0.5)
 
@@ -723,7 +662,7 @@ def process_mask(protos, masks_in, bboxes, shape, upsample=False):
 
     masks = crop_mask(masks, downsampled_bboxes)  # CHW
     if upsample:
-        masks = F_torch.interpolate(masks[None], shape, mode='bilinear', align_corners=False)[0]  # CHW
+        masks = F.interpolate(masks[None], shape, mode='bilinear', align_corners=False)[0]  # CHW
     return masks.gt_(0.5)
 
 
@@ -747,61 +686,111 @@ def process_mask_native(protos, masks_in, bboxes, shape):
     return masks.gt_(0.5)
 
 
-def polygon2mask(imgsz, polygons, color=1, downsample_ratio=1):
+def scale_masks(masks, shape, padding=True):
     """
-    Convert a list of polygons to a binary mask of the specified image size.
+    Rescale segment masks to shape.
 
     Args:
-        imgsz (tuple): The size of the image as (height, width).
-        polygons (list[np.ndarray]): A list of polygons. Each polygon is an array with shape [N, M], where
-                                     N is the number of polygons, and M is the number of points such that M % 2 = 0.
-        color (int, optional): The color value to fill in the polygons on the mask. Defaults to 1.
-        downsample_ratio (int, optional): Factor by which to downsample the mask. Defaults to 1.
-
-    Returns:
-        (np.ndarray): A binary mask of the specified image size with the polygons filled in.
+        masks (torch.Tensor): (N, C, H, W).
+        shape (tuple): Height and width.
+        padding (bool): If True, assuming the boxes is based on image augmented by yolo style. If False then do regular
+            rescaling.
     """
-    mask = np.zeros(imgsz, dtype=np.uint8)
-    polygons = np.asarray(polygons, dtype=np.int32)
-    polygons = polygons.reshape((polygons.shape[0], -1, 2))
-    cv2.fillPoly(mask, polygons, color=color)
-    nh, nw = (imgsz[0] // downsample_ratio, imgsz[1] // downsample_ratio)
-    # Note: fillPoly first then resize is trying to keep the same loss calculation method when mask-ratio=1
-    return cv2.resize(mask, (nw, nh))
+    mh, mw = masks.shape[2:]
+    gain = min(mh / shape[0], mw / shape[1])  # gain  = old / new
+    pad = [mw - shape[1] * gain, mh - shape[0] * gain]  # wh padding
+    if padding:
+        pad[0] /= 2
+        pad[1] /= 2
+    top, left = (int(round(pad[1] - 0.1)), int(round(pad[0] - 0.1))) if padding else (0, 0)  # y, x
+    bottom, right = (int(round(mh - pad[1] + 0.1)), int(round(mw - pad[0] + 0.1)))
+    masks = masks[..., top:bottom, left:right]
+
+    masks = F.interpolate(masks, shape, mode='bilinear', align_corners=False)  # NCHW
+    return masks
 
 
-def polygons2masks(imgsz, polygons, color, downsample_ratio=1):
+def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None, normalize=False, padding=True):
     """
-    Convert a list of polygons to a set of binary masks of the specified image size.
+    Rescale segment coordinates (xy) from img1_shape to img0_shape.
 
     Args:
-        imgsz (tuple): The size of the image as (height, width).
-        polygons (list[np.ndarray]): A list of polygons. Each polygon is an array with shape [N, M], where
-                                     N is the number of polygons, and M is the number of points such that M % 2 = 0.
-        color (int): The color value to fill in the polygons on the masks.
-        downsample_ratio (int, optional): Factor by which to downsample each mask. Defaults to 1.
+        img1_shape (tuple): The shape of the image that the coords are from.
+        coords (torch.Tensor): the coords to be scaled of shape n,2.
+        img0_shape (tuple): the shape of the image that the segmentation is being applied to.
+        ratio_pad (tuple): the ratio of the image size to the padded image size.
+        normalize (bool): If True, the coordinates will be normalized to the range [0, 1]. Defaults to False.
+        padding (bool): If True, assuming the boxes is based on image augmented by yolo style. If False then do regular
+            rescaling.
 
     Returns:
-        (np.ndarray): A set of binary masks of the specified image size with the polygons filled in.
+        coords (torch.Tensor): The scaled coordinates.
     """
-    return np.array([polygon2mask(imgsz, [x.reshape(-1)], color, downsample_ratio) for x in polygons])
+    if ratio_pad is None:  # calculate from img0_shape
+        gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
+        pad = (img1_shape[1] - img0_shape[1] * gain) / 2, (img1_shape[0] - img0_shape[0] * gain) / 2  # wh padding
+    else:
+        gain = ratio_pad[0][0]
+        pad = ratio_pad[1]
+
+    if padding:
+        coords[..., 0] -= pad[0]  # x padding
+        coords[..., 1] -= pad[1]  # y padding
+    coords[..., 0] /= gain
+    coords[..., 1] /= gain
+    coords = clip_coords(coords, img0_shape)
+    if normalize:
+        coords[..., 0] /= img0_shape[1]  # width
+        coords[..., 1] /= img0_shape[0]  # height
+    return coords
 
 
-def polygons2masks_overlap(imgsz, segments, downsample_ratio=1):
-    """Return a (640, 640) overlap mask."""
-    masks = np.zeros((imgsz[0] // downsample_ratio, imgsz[1] // downsample_ratio),
-                     dtype=np.int32 if len(segments) > 255 else np.uint8)
-    areas = []
-    ms = []
-    for si in range(len(segments)):
-        mask = polygon2mask(imgsz, [segments[si].reshape(-1)], downsample_ratio=downsample_ratio, color=1)
-        ms.append(mask)
-        areas.append(mask.sum())
-    areas = np.asarray(areas)
-    index = np.argsort(-areas)
-    ms = np.array(ms)[index]
-    for i in range(len(segments)):
-        mask = ms[i] * (i + 1)
-        masks = masks + mask
-        masks = np.clip(masks, a_min=0, a_max=i + 1)
-    return masks, index
+def masks2segments(masks, strategy='largest'):
+    """
+    It takes a list of masks(n,h,w) and returns a list of segments(n,xy)
+
+    Args:
+        masks (torch.Tensor): the output of the model, which is a tensor of shape (batch_size, 160, 160)
+        strategy (str): 'concat' or 'largest'. Defaults to largest
+
+    Returns:
+        segments (List): list of segment masks
+    """
+    segments = []
+    for x in masks.int().cpu().numpy().astype('uint8'):
+        c = cv2.findContours(x, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
+        if c:
+            if strategy == 'concat':  # concatenate all segments
+                c = np.concatenate([x.reshape(-1, 2) for x in c])
+            elif strategy == 'largest':  # select largest segment
+                c = np.array(c[np.array([len(x) for x in c]).argmax()]).reshape(-1, 2)
+        else:
+            c = np.zeros((0, 2))  # no segments found
+        segments.append(c.astype('float32'))
+    return segments
+
+
+def convert_torch2numpy_batch(batch: torch.Tensor) -> np.ndarray:
+    """
+    Convert a batch of FP32 torch tensors (0.0-1.0) to a NumPy uint8 array (0-255), changing from BCHW to BHWC layout.
+
+    Args:
+        batch (torch.Tensor): Input tensor batch of shape (Batch, Channels, Height, Width) and dtype torch.float32.
+
+    Returns:
+        (np.ndarray): Output NumPy array batch of shape (Batch, Height, Width, Channels) and dtype uint8.
+    """
+    return (batch.permute(0, 2, 3, 1).contiguous() * 255).clamp(0, 255).to(torch.uint8).cpu().numpy()
+
+
+def clean_str(s):
+    """
+    Cleans a string by replacing special characters with underscore _
+
+    Args:
+        s (str): a string needing special characters replaced
+
+    Returns:
+        (str): a string with special characters replaced by an underscore _
+    """
+    return re.sub(pattern='[|@#!¡·$€%&()=?¿^*;:,¨´><+]', repl='_', string=s)

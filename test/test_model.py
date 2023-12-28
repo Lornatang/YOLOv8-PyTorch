@@ -13,7 +13,7 @@
 # ==============================================================================
 from omegaconf import OmegaConf
 
-from yolov8_pytorch.models import DetectionModel
+from yolov8_pytorch_old.models import DetectionModel
 
 model_config_path = "../configs/COCO-Detection/yolov8n-ours.yaml"
 

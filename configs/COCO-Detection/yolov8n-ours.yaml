@@ -1,4 +1,4 @@
-PROJECT_NAME: "yolov8_pytorch"  # The repo name
+PROJECT_NAME: "yolov8_pytorch_old"  # The repo name
 EXP_NAME: "YOLOv8n-COCO-Detection"  # The name of this experiment
 SEED: 42  # random number seed
 DEVICE_ID: "cuda"  # run device models
