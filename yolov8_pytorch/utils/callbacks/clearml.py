@@ -1,9 +1,6 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
-from ultralytics.utils import SETTINGS, TESTS_RUNNING
-import logging
-
-logger = logging.getLogger(__name__)
+from ultralytics.utils import LOGGER, SETTINGS, TESTS_RUNNING
 
 try:
     assert not TESTS_RUNNING  # do not log pytest
@@ -79,11 +76,11 @@ def on_pretrain_routine_start(trainer):
                              auto_connect_frameworks={
                                  'pytorch': False,
                                  'matplotlib': False})
-            logger.warning('ClearML Initialized a new task. If you want to run remotely, '
+            LOGGER.warning('ClearML Initialized a new task. If you want to run remotely, '
                            'please add clearml-init and connect your arguments before initializing YOLO.')
         task.connect(vars(trainer.args), name='General')
     except Exception as e:
-        logger.warning(f'WARNING ⚠️ ClearML installed but not initialized correctly, not logging this run. {e}')
+        LOGGER.warning(f'WARNING ⚠️ ClearML installed but not initialized correctly, not logging this run. {e}')
 
 
 def on_train_epoch_end(trainer):

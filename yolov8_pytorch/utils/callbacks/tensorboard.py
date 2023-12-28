@@ -1,6 +1,11 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
-from ultralytics.utils import LOGGER, SETTINGS, TESTS_RUNNING, colorstr
+import logging
+
+from ultralytics.utils import SETTINGS, TESTS_RUNNING
+from .. import colorstr
+
+logger = logging.getLogger(__name__)
 
 try:
     # WARNING: do not move import due to protobuf issue in https://github.com/ultralytics/ultralytics/pull/4674
@@ -37,7 +42,7 @@ def _log_tensorboard_graph(trainer):
             warnings.simplefilter('ignore', category=UserWarning)  # suppress jit trace warning
             WRITER.add_graph(torch.jit.trace(de_parallel(trainer.model), im, strict=False), [])
     except Exception as e:
-        LOGGER.warning(f'WARNING ⚠️ TensorBoard graph visualization failure {e}')
+        logger.warning(f'WARNING ⚠️ TensorBoard graph visualization failure {e}')
 
 
 def on_pretrain_routine_start(trainer):
@@ -47,9 +52,9 @@ def on_pretrain_routine_start(trainer):
             global WRITER
             WRITER = SummaryWriter(str(trainer.save_dir))
             prefix = colorstr('TensorBoard: ')
-            LOGGER.info(f"{prefix}Start with 'tensorboard --logdir {trainer.save_dir}', view at http://localhost:6006/")
+            logger.info(f"{prefix}Start with 'tensorboard --logdir {trainer.save_dir}', view at http://localhost:6006/")
         except Exception as e:
-            LOGGER.warning(f'WARNING ⚠️ TensorBoard not initialized correctly, not logging this run. {e}')
+            logger.warning(f'WARNING ⚠️ TensorBoard not initialized correctly, not logging this run. {e}')
 
 
 def on_train_start(trainer):

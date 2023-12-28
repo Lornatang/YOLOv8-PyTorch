@@ -13,6 +13,7 @@
 # ==============================================================================
 import logging
 import time
+from pathlib import Path
 
 import torch
 from torch import nn
@@ -119,3 +120,18 @@ def time_sync():
     if torch.cuda.is_available():
         torch.cuda.synchronize()
     return time.time()
+
+
+def get_save_dir(args, name=None):
+    """Return save_dir as created from train/val/predict arguments."""
+
+    if getattr(args, 'save_dir', None):
+        save_dir = args.save_dir
+    else:
+        from ultralytics.utils.files import increment_path
+
+        project = args.project / args.task
+        name = name or args.name or f'{args.mode}'
+        save_dir = increment_path(Path(project) / name, exist_ok=args.exist_ok)
+
+    return Path(save_dir)

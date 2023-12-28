@@ -19,16 +19,16 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
+from omegaconf import DictConfig
 
-from ultralytics.cfg import get_cfg, get_save_dir
 from ultralytics.data import load_inference_source
 from ultralytics.nn.autobackend import AutoBackend
-from ultralytics.utils import DEFAULT_CFG, MACOS, WINDOWS, callbacks
-from yolov8_pytorch.data.transform import LetterBox
-from yolov8_pytorch.data.transform import classify_transforms
+from yolov8_pytorch.data.transform import classify_transforms, LetterBox
 from yolov8_pytorch.utils import colorstr, Profile
+from yolov8_pytorch.utils.callbacks import get_default_callbacks, add_integration_callbacks
 from yolov8_pytorch.utils.common import select_device
 from yolov8_pytorch.utils.files import increment_path
+from yolov8_pytorch.utils.misc import get_save_dir
 from yolov8_pytorch.utils.misc import inference_mode
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ class BasePredictor:
         data_path (str): Path to data.
     """
 
-    def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks=None):
+    def __init__(self, cfg=DictConfig, overrides=None, _callbacks=None):
         """
         Initializes the BasePredictor class.
 
@@ -61,7 +61,7 @@ class BasePredictor:
             cfg (str, optional): Path to a configuration file. Defaults to DEFAULT_CFG.
             overrides (dict, optional): Configuration overrides. Defaults to None.
         """
-        self.args = get_cfg(cfg, overrides)
+        self.args = cfg
         self.save_dir = get_save_dir(self.args)
         if self.args.conf is None:
             self.args.conf = 0.25  # default conf=0.25
@@ -80,10 +80,10 @@ class BasePredictor:
         self.batch = None
         self.results = None
         self.transforms = None
-        self.callbacks = _callbacks or callbacks.get_default_callbacks()
+        self.callbacks = _callbacks or get_default_callbacks()
         self.txt_path = None
         self._lock = threading.Lock()  # for automatic thread-safe inference
-        callbacks.add_integration_callbacks(self)
+        add_integration_callbacks(self)
 
     def preprocess(self, im):
         """
@@ -331,7 +331,7 @@ class BasePredictor:
                     h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 else:  # stream
                     fps, w, h = 30, im0.shape[1], im0.shape[0]
-                suffix, fourcc = ('.mp4', 'avc1') if MACOS else ('.avi', 'WMV2') if WINDOWS else ('.avi', 'MJPG')
+                suffix, fourcc = ('.mp4', 'avc1')
                 self.vid_writer[idx] = cv2.VideoWriter(str(Path(save_path).with_suffix(suffix)),
                                                        cv2.VideoWriter_fourcc(*fourcc), fps, (w, h))
             # Write video
