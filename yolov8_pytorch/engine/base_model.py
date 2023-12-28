@@ -223,7 +223,7 @@ class BaseModel(nn.Module):
         if self.cfg.TRAIN.get('resume'):
             self.cfg.TRAIN['resume'] = self.ckpt_path
 
-        self.trainer = (trainer or self._smart_load('trainer'))(cfg=self.cfg.TRAIN, _callbacks=self.callbacks)
+        self.trainer = (trainer or self._smart_load('trainer'))(overrides=self.overrides, _callbacks=self.callbacks)
         if not self.cfg.TRAIN.get('resume'):  # manually set model only if not resuming
             self.trainer.model = self.trainer.get_model(weights=self.model if self.ckpt else None, cfg=self.model.yaml)
             self.model = self.trainer.model
