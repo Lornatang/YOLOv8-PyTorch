@@ -225,7 +225,7 @@ class BaseModel(nn.Module):
 
         self.trainer = (trainer or self._smart_load('trainer'))(cfg=self.cfg, overrides=self.overrides, _callbacks=self.callbacks)
         if not self.cfg.TRAIN.get('resume'):  # manually set model only if not resuming
-            self.trainer.model = self.trainer.get_model(weights=self.model if self.ckpt else None, cfg=self.model.yaml)
+            self.trainer.model = self.trainer.get_model(weights=self.model if self.ckpt else None, cfg=self.cfg.MODEL)
             self.model = self.trainer.model
         self.trainer.hub_session = self.session  # attach optional HUB session
         self.trainer.train()
