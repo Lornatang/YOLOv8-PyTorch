@@ -80,6 +80,7 @@ class BaseTrainer:
         """
         self.args = get_cfg()
         self.args.task = 'detect'
+        self.args.data = cfg.TRAIN.data
         self.check_resume(overrides)
         self.device = select_device(self.args.device, self.args.batch)
         self.validator = None
