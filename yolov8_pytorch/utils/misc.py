@@ -20,7 +20,7 @@ from torch import nn
 from .common import calculate_model_parameters, calculate_model_flops
 
 __all__ = [
-    "fuse_conv_and_bn", "model_summary", "time_sync",
+    "fuse_conv_and_bn", "inference_mode", "model_summary", "time_sync",
 ]
 
 logger = logging.getLogger(__name__)
@@ -67,6 +67,17 @@ def fuse_conv_and_bn(convolution: nn.Conv2d, batch_norm: nn.BatchNorm2d) -> nn.C
     fused_convolution.bias.copy_(torch.mm(weight_batch_norm, bias_convolution.reshape(-1, 1)).reshape(-1) + bias_batch_norm)
 
     return fused_convolution
+
+
+def inference_mode():
+    def decorate(func):
+        """Applies the appropriate torch decorator for inference mode based on the torch version."""
+        if torch.is_inference_mode_enabled():
+            return func  # already in inference_mode, act as a pass-through
+        else:
+            return torch.no_grad()(func)  # apply torch.no_grad() decorator
+
+    return decorate
 
 
 def model_summary(model: nn.Module, image_size: int = 640, verbose: bool = True) -> tuple | None:

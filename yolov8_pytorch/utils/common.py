@@ -11,6 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import logging
 from copy import deepcopy
 from typing import List, Tuple
 
@@ -20,9 +21,11 @@ from torch import nn, Tensor
 
 __all__ = [
     "convert_bbox_to_letterbox", "convert_letterbox_to_bbox", "calculate_model_parameters", "calculate_model_flops", "make_anchors",
-    "select_candidates_in_gts", "select_highest_overlaps",
+    "select_candidates_in_gts", "select_highest_overlaps", "select_device",
     "TaskAlignedAssigner",
 ]
+
+logger = logging.getLogger(__name__)
 
 from .metrics import bbox_iou
 
@@ -223,6 +226,51 @@ def select_highest_overlaps(mask_pos: Tensor, overlaps: Tensor, num_max_boxes: i
         fg_mask = mask_pos.sum(-2)
     target_gt_idx = mask_pos.argmax(-2)  # (b, h*w)
     return target_gt_idx, fg_mask, mask_pos
+
+
+def select_device(device: str = "cpu") -> torch.device:
+    r"""Automatically select device (CPU or GPU).
+
+    Args:
+        device (str, optional): device name. Defaults to "cpu".
+
+    Raises:
+        ValueError: device not supported.
+
+    Examples:
+        >>> select_device("cpu")
+        Use CPU.
+        >>> select_device("cuda")
+        Use CUDA.
+        >>> select_device("gpu")
+        Use CUDA.
+        >>> select_device("tpu")
+        Traceback (most recent call last):
+        File "<string>", line 1, in <module>
+        File "<string>", line 18, in select_device
+        ValueError: Device 'tpu' not supported. Choices: ['cpu', 'cuda', 'gpu']
+
+    Returns:
+        torch.device: device.
+    """
+    supported_devices = ["cpu", "cuda", "gpu"]
+    if device not in supported_devices:
+        raise ValueError(f"Device '{device}' not supported. Choices: {supported_devices}")
+
+    if device == "cpu":
+        logger.info("Use CPU.")
+        device = torch.device("cpu")
+        if torch.cuda.is_available():
+            logger.info("You have a CUDA device, enabling CUDA will give you a large boost in performance.")
+    elif device in ["cuda", "gpu"]:
+        if not torch.cuda.is_available():
+            logger.warning("CUDA is not available, switching to CPU.")
+            device = torch.device("cpu")
+        else:
+            logger.info("Use CUDA.")
+            device = torch.device("cuda")
+
+    return device
 
 
 class TaskAlignedAssigner(nn.Module):
