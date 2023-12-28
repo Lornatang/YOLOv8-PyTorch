@@ -16,13 +16,13 @@ from pathlib import Path
 import super_gradients
 import torch
 
-from yolov8_pytorch.engine.model import Model
+from yolov8_pytorch.engine.base_model import BaseModel
 from yolov8_pytorch.utils.torch_utils import model_info, smart_inference_mode
 from .predict import NASPredictor
 from .val import NASValidator
 
 
-class YOLONAS(Model):
+class YOLONAS(BaseModel):
     """
     YOLO NAS model for object detection.
 

@@ -1,11 +1,11 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
-from yolov8_pytorch.engine.model import Model
+from yolov8_pytorch.engine.base_model import BaseModel
 from yolov8_pytorch.models import yolo  # noqa
 from yolov8_pytorch.nn.tasks import ClassificationModel, DetectionModel, PoseModel, SegmentationModel
 
 
-class YOLO(Model):
+class YOLO(BaseModel):
     """YOLO (You Only Look Once) object detection model."""
 
     @property

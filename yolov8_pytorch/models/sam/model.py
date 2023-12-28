@@ -16,14 +16,13 @@ Key Features:
 
 from pathlib import Path
 
-from yolov8_pytorch.engine.model import Model
+from yolov8_pytorch.engine.base_model import BaseModel
 from yolov8_pytorch.utils.torch_utils import model_info
-
 from .build import build_sam
 from .predict import Predictor
 
 
-class SAM(Model):
+class SAM(BaseModel):
     """
     SAM (Segment Anything Model) interface class.
 

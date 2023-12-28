@@ -11,7 +11,7 @@ from yolov8_pytorch.nn.tasks import attempt_load_one_weight, guess_model_task, n
 from yolov8_pytorch.utils import ASSETS, DEFAULT_CFG_DICT, LOGGER, RANK, callbacks, checks, emojis, yaml_load
 
 
-class Model(nn.Module):
+class BaseModel(nn.Module):
     """
     A base class to unify APIs for all models.
 
