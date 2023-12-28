@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Union
 
 from yolov8_pytorch.cfg import TASK2DATA, get_cfg, get_save_dir
-from yolov8_pytorch.hub.utils import HUB_WEB_ROOT
 from yolov8_pytorch.nn.tasks import attempt_load_one_weight, guess_model_task, nn, yaml_model_load
 from yolov8_pytorch.utils import ASSETS, DEFAULT_CFG_DICT, LOGGER, RANK, callbacks, checks, emojis, yaml_load
 
@@ -74,14 +73,8 @@ class BaseModel(nn.Module):
         self.task = task  # task type
         model = str(model).strip()  # strip spaces
 
-        # Check if Ultralytics HUB model from https://hub.yolov8_pytorch.com
-        if self.is_hub_model(model):
-            from yolov8_pytorch.hub.session import HUBTrainingSession
-            self.session = HUBTrainingSession(model)
-            model = self.session.model_file
-
         # Check if Triton Server model
-        elif self.is_triton_model(model):
+        if self.is_triton_model(model):
             self.model = model
             self.task = task
             return
@@ -103,14 +96,6 @@ class BaseModel(nn.Module):
         from urllib.parse import urlsplit
         url = urlsplit(model)
         return url.netloc and url.path and url.scheme in {'http', 'grpc'}
-
-    @staticmethod
-    def is_hub_model(model):
-        """Check if the provided model is a HUB model."""
-        return any((
-            model.startswith(f'{HUB_WEB_ROOT}/models/'),  # i.e. https://hub.yolov8_pytorch.com/models/MODEL_ID
-            [len(x) for x in model.split('_')] == [42, 20],  # APIKEY_MODELID
-            len(model) == 20 and not Path(model).exists() and all(x not in model for x in './\\')))  # MODELID
 
     def _new(self, cfg: str, task=None, model=None, verbose=True):
         """
