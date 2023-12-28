@@ -5,7 +5,7 @@ DEVICE_ID: "cuda"  # run device models
 
 MODEL:
   IN_CHANNELS: 3  # number of input channels (RGB)
-  NUM_CLASSES: 1  # number of classes in the dataset
+  NUM_CLASSES: 80  # number of classes in the dataset
   DEPTH_MULTIPLE: 0.33  # model depth multiple
   WIDTH_MULTIPLE: 0.25  # layer channel multiple
   MAX_CHANNELS: 1024  # maximum number of channels in any Conv2d layer
