@@ -1,4 +1,4 @@
-# Copyright 2023 AlphaBetter Corporation. All Rights Reserved.
+# Copyright 2023 Lornatang Authors. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
 #   You may obtain a copy of the License at
@@ -11,16 +11,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from omegaconf import OmegaConf
+from pathlib import Path
 
-from yolov8_pytorch.models import YOLOEngine
-from yolov8_pytorch.nn.tasks import create_model_from_yaml
+import torch
 
-model_config_path = "../configs/COCO-Detection/yolov8n-ours.yaml"
+__all__ = [
+    "load_weights",
+]
 
-model_config = OmegaConf.load(model_config_path)
-model_config = OmegaConf.create(model_config)
 
-if __name__ == "__main__":
-    # model = create_model_from_yaml(model_config.MODEL, True)
-    model = YOLOEngine(model_config, task="detect", verbose=True).load("yolov8n.pt")
+def load_weights(weights_path: str | Path, device: torch.device = None, fused: bool = False):
+    if isinstance(weights_path, str):
+        weights_path = Path(weights_path)
+
+    checkpoint = torch.load(weights_path, map_location="cpu" if device is None else device)
+    weights = (checkpoint.get("ema_model") or checkpoint["model"]).to(device).float()
+    weights = weights.fuse().eval() if fused and hasattr(weights, "fused") else weights.eval()
+    return weights

@@ -7,14 +7,14 @@ hybrid encoder and IoU-aware query selection for enhanced detection accuracy.
 For more information on RT-DETR, visit: https://arxiv.org/pdf/2304.08069.pdf
 """
 
-from yolov8_pytorch.engine.base_model import BaseModel
+from yolov8_pytorch.engine.model import ModelEngine
 from yolov8_pytorch.nn.tasks import RTDETRDetectionModel
 from .predict import RTDETRPredictor
 from .train import RTDETRTrainer
 from .val import RTDETRValidator
 
 
-class RTDETR(BaseModel):
+class RTDETR(ModelEngine):
     """
     Interface for Baidu's RT-DETR model. This Vision Transformer-based object detector provides real-time performance
     with high accuracy. It supports efficient hybrid encoding, IoU-aware query selection, and adaptable inference speed.

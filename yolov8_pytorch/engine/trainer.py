@@ -17,21 +17,22 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from omegaconf import DictConfig
 from torch import distributed as dist
 from torch import nn, optim
 
 from yolov8_pytorch.cfg import get_cfg, get_save_dir
 from yolov8_pytorch.data.utils import check_cls_dataset, check_det_dataset
 from yolov8_pytorch.nn.tasks import attempt_load_one_weight, attempt_load_weights
-from yolov8_pytorch.utils import (DEFAULT_CFG, LOGGER, RANK, TQDM, __version__, callbacks, clean_url, colorstr, emojis,
-                               yaml_save)
+from yolov8_pytorch.utils import (LOGGER, RANK, TQDM, __version__, callbacks, clean_url, colorstr, emojis,
+                                  yaml_save)
 from yolov8_pytorch.utils.autobatch import check_train_batch_size
-from yolov8_pytorch.utils.checks import check_amp, check_file, check_imgsz, check_model_file_from_stem, print_args
+from yolov8_pytorch.utils.checks import check_file, check_imgsz, check_model_file_from_stem, print_args
 from yolov8_pytorch.utils.dist import ddp_cleanup, generate_ddp_command
 from yolov8_pytorch.utils.files import get_latest_run
 from yolov8_pytorch.utils.torch_utils import (EarlyStopping, ModelEMA, de_parallel, init_seeds, one_cycle, select_device,
-                                           strip_optimizer)
-from omegaconf import OmegaConf, DictConfig
+                                              strip_optimizer)
+
 
 class BaseTrainer:
     """
@@ -70,7 +71,7 @@ class BaseTrainer:
         csv (Path): Path to results CSV file.
     """
 
-    def __init__(self, cfg:DictConfig=None, overrides=None, _callbacks=None):
+    def __init__(self, cfg: DictConfig = None, overrides=None, _callbacks=None):
         """
         Initializes the BaseTrainer class.
 

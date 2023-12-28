@@ -2,6 +2,6 @@
 
 from yolov8_pytorch.models.yolo import detect, segment
 
-from .model import YOLO
+from .model import YOLOEngine
 
-__all__ = 'segment', 'detect', 'YOLO'
+__all__ = 'segment', 'detect', 'YOLOEngine'

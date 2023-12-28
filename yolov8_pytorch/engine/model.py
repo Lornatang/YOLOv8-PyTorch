@@ -1,98 +1,50 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
-import inspect
 import logging
 import sys
 from pathlib import Path
-from typing import Union
+from typing import Any
 
-from yolov8_pytorch.cfg import TASK2DATA, get_cfg, get_save_dir
-from yolov8_pytorch.nn.tasks import attempt_load_one_weight, nn, yaml_model_load
-from yolov8_pytorch.utils import ASSETS, DEFAULT_CFG_DICT, LOGGER, RANK, callbacks, checks, yaml_load
-from omegaconf import OmegaConf, DictConfig
+from omegaconf import DictConfig
+
+from yolov8_pytorch.cfg import get_cfg, get_save_dir
+from yolov8_pytorch.nn.tasks import attempt_load_one_weight, nn
+from yolov8_pytorch.utils import ASSETS, DEFAULT_CFG_DICT, LOGGER, RANK, callbacks
+from yolov8_pytorch.utils.common import load_weights
 
 logger = logging.getLogger(__name__)
 
 
-class BaseModel(nn.Module):
-    """
-    A base class to unify APIs for all models.
+class ModelEngine(nn.Module):
+    def __init__(self, config_dict: DictConfig, task: str, verbose: bool = False) -> None:
 
-    Args:
-        config_dict (str, Path): Path to the model file to load or create.
-        task (Any, optional): Task type for the YOLO model. Defaults to None.
-
-    Attributes:
-        predictor (Any): The predictor object.
-        model (Any): The model object.
-        trainer (Any): The trainer object.
-        task (str): The type of model task.
-        ckpt (Any): The checkpoint object if the model loaded from *.pt file.
-        cfg (str): The model configuration if loaded from *.yaml file.
-        ckpt_path (str): The checkpoint file path.
-        overrides (dict): Overrides for the trainer object.
-        metrics (Any): The data for metrics.
-
-    Methods:
-        __call__(source=None, stream=False, **kwargs):
-            Alias for the predict method.
-        _new(cfg:str, verbose:bool=True) -> None:
-            Initializes a new model and infers the task type from the model definitions.
-        _load(weights:str, task:str='') -> None:
-            Initializes a new model and infers the task type from the model head.
-        _check_is_pytorch_model() -> None:
-            Raises TypeError if the model is not a PyTorch model.
-        reset() -> None:
-            Resets the model modules.
-        info(verbose:bool=False) -> None:
-            Logs the model info.
-        fuse() -> None:
-            Fuses the model for faster inference.
-        predict(source=None, stream=False, **kwargs) -> List[yolov8_pytorch.engine.results.Results]:
-            Performs prediction using the YOLO model.
-
-    Returns:
-        list(yolov8_pytorch.engine.results.Results): The prediction results.
-    """
-
-    def __init__(self, config_dict: DictConfig, task: str, verbose: bool = True) -> None:
-        """
-        Initializes the YOLO model.
-
-        Args:
-            config_dict (Union[str, Path], optional): Path or name of the model to load or create. Defaults to 'yolov8n.pt'.
-        """
         super().__init__()
         self.callbacks = callbacks.get_default_callbacks()
-        self.predictor = None  # reuse predictor
-        self.model = None  # model object
-        self.trainer = None  # trainer object
-        self.ckpt = None  # if loaded from *.pt
-        self.ckpt_path = None
-        self.overrides = {}  # overrides for trainer object
-        self.metrics = None  # validation/training metrics
+        self.model = None
+        self.inferencer = None
+        self.trainer = None
+        self.checkpoint = None
+        self.checkpoint_path = None
+        self.metrics = None
+        self.overrides = {}
+
+        self.config_dict = config_dict
         self.task = task  # task type
 
-        # create new YOLO model
-        self.cfg = config_dict
-        self.model = self._smart_load('model')(config_dict.MODEL, verbose=verbose and RANK == -1)  # build model
-        self.overrides['model'] = self.cfg
-        self.overrides['task'] = self.task
+        # create YOLO model
+        self.model = self._load_engine("model")(config_dict.MODEL, verbose=verbose and RANK == -1)
+        self.model.config = config_dict
+        self.model.task = task
 
-        # Below added to allow export from YAMLs
-        self.model.args = {**DEFAULT_CFG_DICT, **self.overrides}  # combine default and model args (prefer model args)
-        self.model.task = self.task
-
-    def __call__(self, source=None, stream=False, **kwargs):
-        """Calls the predict() method with given arguments to perform object detection."""
+    def __call__(self, source: Any = None, stream: bool = False, **kwargs):
         return self.predict(source, stream, **kwargs)
 
-    def load(self, weights='yolov8n.pt'):
+    def load(self, weights: str):
         """Transfers parameters with matching names and shapes from 'weights' to model."""
         if isinstance(weights, (str, Path)):
-            weights, self.ckpt = attempt_load_one_weight(weights)
-        self.model.load(weights)
-        return self
+            self.model = load_weights(weights)
+            self.checkpoint = True
+
 
     def info(self, detailed=False, verbose=True):
         """
@@ -152,16 +104,16 @@ class BaseModel(nn.Module):
         args = {**self.overrides, **custom, **kwargs, 'mode': 'predict'}  # highest priority args on the right
         prompts = args.pop('prompts', None)  # for SAM-type models
 
-        if not self.predictor:
-            self.predictor = (predictor or self._smart_load('predictor'))(overrides=args, _callbacks=self.callbacks)
-            self.predictor.setup_model(model=self.model, verbose=is_cli)
+        if not self.inferencer:
+            self.inferencer = (predictor or self._load_engine('predictor'))(overrides=args, _callbacks=self.callbacks)
+            self.inferencer.setup_model(model=self.model, verbose=is_cli)
         else:  # only update args if predictor is already setup
-            self.predictor.args = get_cfg(self.predictor.args, args)
+            self.inferencer.args = get_cfg(self.inferencer.args, args)
             if 'project' in args or 'name' in args:
-                self.predictor.save_dir = get_save_dir(self.predictor.args)
-        if prompts and hasattr(self.predictor, 'set_prompts'):  # for SAM-type models
-            self.predictor.set_prompts(prompts)
-        return self.predictor.predict_cli(source=source) if is_cli else self.predictor(source=source, stream=stream)
+                self.inferencer.save_dir = get_save_dir(self.inferencer.args)
+        if prompts and hasattr(self.inferencer, 'set_prompts'):  # for SAM-type models
+            self.inferencer.set_prompts(prompts)
+        return self.inferencer.predict_cli(source=source) if is_cli else self.inferencer(source=source, stream=stream)
 
     def val(self, validator=None, **kwargs):
         """
@@ -174,7 +126,7 @@ class BaseModel(nn.Module):
         custom = {'rect': True}  # method defaults
         args = {**self.overrides, **custom, **kwargs, 'mode': 'val'}  # highest priority args on the right
 
-        validator = (validator or self._smart_load('validator'))(args=args, _callbacks=self.callbacks)
+        validator = (validator or self._load_engine('validator'))(args=args, _callbacks=self.callbacks)
         validator(model=self.model)
         self.metrics = validator.metrics
         return validator.metrics
@@ -220,12 +172,12 @@ class BaseModel(nn.Module):
             trainer (BaseTrainer, optional): Customized trainer.
             **kwargs (Any): Any number of arguments representing the training configuration.
         """
-        if self.cfg.TRAIN.get('resume'):
-            self.cfg.TRAIN['resume'] = self.ckpt_path
+        if self.config_dict.TRAIN.get('resume'):
+            self.config_dict.TRAIN['resume'] = self.checkpoint_path
 
-        self.trainer = (trainer or self._smart_load('trainer'))(cfg=self.cfg, overrides=self.overrides, _callbacks=self.callbacks)
-        if not self.cfg.TRAIN.get('resume'):  # manually set model only if not resuming
-            self.trainer.model = self.trainer.get_model(weights=self.model if self.ckpt else None, cfg=self.cfg.MODEL)
+        self.trainer = (trainer or self._load_engine('trainer'))(cfg=self.config_dict, overrides=self.overrides, _callbacks=self.callbacks)
+        if not self.config_dict.TRAIN.get('resume'):  # manually set model only if not resuming
+            self.trainer.model = self.trainer.get_model(weights=self.model if self.checkpoint else None, cfg=self.config_dict.MODEL)
             self.model = self.trainer.model
         self.trainer.train()
         # Update model and cfg after training
@@ -253,10 +205,13 @@ class BaseModel(nn.Module):
             args = {**self.overrides, **custom, **kwargs, 'mode': 'train'}  # highest priority args on the right
             return Tuner(args=args, _callbacks=self.callbacks)(model=self, iterations=iterations)
 
+    def _load_engine(self, key):
+        return self.task_map[self.task][key]
+
     def _apply(self, fn):
         """Apply to(), cpu(), cuda(), half(), float() to model tensors that are not parameters or registered buffers."""
         self = super()._apply(fn)  # noqa
-        self.predictor = None  # reset predictor as device may have changed
+        self.inferencer = None  # reset predictor as device may have changed
         self.overrides['device'] = self.device  # was str(self.device) i.e. device(type='cuda', index=0) -> 'cuda:0'
         return self
 
@@ -287,29 +242,3 @@ class BaseModel(nn.Module):
         """Reset all registered callbacks."""
         for event in callbacks.default_callbacks.keys():
             self.callbacks[event] = [callbacks.default_callbacks[event][0]]
-
-    @staticmethod
-    def _reset_ckpt_args(args):
-        """Reset arguments when loading a PyTorch model."""
-        include = {'imgsz', 'data', 'task', 'single_cls'}  # only remember these arguments when loading a PyTorch model
-        return {k: v for k, v in args.items() if k in include}
-
-    def _smart_load(self, key):
-        """Load model/trainer/validator/predictor."""
-        try:
-            return self.task_map[self.task][key]
-        except Exception as e:
-            name = self.__class__.__name__
-            mode = inspect.stack()[1][3]  # get the function name.
-            raise NotImplementedError(
-                logger.warning(f"'{name}' model does not support '{mode}' mode for '{self.task}' task.")) from e
-
-    @property
-    def task_map(self):
-        """
-        Map head to model, trainer, validator, and predictor classes.
-
-        Returns:
-            task_map (dict): The map of model task to mode classes.
-        """
-        raise NotImplementedError('Please provide task map for your model!')

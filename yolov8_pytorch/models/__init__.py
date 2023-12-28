@@ -14,9 +14,9 @@
 from .fastsam import FastSAM
 from .rtdetr import RTDETR
 from .sam import SAM
-from .yolo import YOLO
+from .yolo import YOLOEngine
 from .yolo_nas import YOLONAS
 
 __all__ = [
-    "FastSAM", "RTDETR", "SAM", "YOLO", "YOLONAS",
+    "FastSAM", "RTDETR", "SAM", "YOLOEngine", "YOLONAS",
 ]

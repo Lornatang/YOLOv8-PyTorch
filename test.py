@@ -11,9 +11,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from yolov8_pytorch.models import YOLO
+from yolov8_pytorch.models import YOLOEngine
 from omegaconf import OmegaConf
 config = OmegaConf.load("configs/COCO-Detection/yolov8n-ours.yaml")
 config = OmegaConf.create(config)
-model = YOLO(config, task="detect", verbose=True).load("yolov8n.pt")
+model = YOLOEngine(config, task="detect", verbose=True).load("yolov8n.pt")
 results = model.train(epochs=100, imgsz=640)

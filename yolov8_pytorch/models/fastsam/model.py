@@ -2,13 +2,13 @@
 
 from pathlib import Path
 
-from yolov8_pytorch.engine.base_model import BaseModel
+from yolov8_pytorch.engine.model import ModelEngine
 
 from .predict import FastSAMPredictor
 from .val import FastSAMValidator
 
 
-class FastSAM(BaseModel):
+class FastSAM(ModelEngine):
     """
     FastSAM model interface.
 
