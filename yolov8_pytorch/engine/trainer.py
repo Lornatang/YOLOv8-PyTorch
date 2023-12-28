@@ -31,7 +31,7 @@ from yolov8_pytorch.utils.dist import ddp_cleanup, generate_ddp_command
 from yolov8_pytorch.utils.files import get_latest_run
 from yolov8_pytorch.utils.torch_utils import (EarlyStopping, ModelEMA, de_parallel, init_seeds, one_cycle, select_device,
                                            strip_optimizer)
-
+from omegaconf import OmegaConf, DictConfig
 
 class BaseTrainer:
     """
@@ -70,7 +70,7 @@ class BaseTrainer:
         csv (Path): Path to results CSV file.
     """
 
-    def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks=None):
+    def __init__(self, cfg:DictConfig=None, overrides=None, _callbacks=None):
         """
         Initializes the BaseTrainer class.
 
@@ -78,7 +78,7 @@ class BaseTrainer:
             cfg (str, optional): Path to a configuration file. Defaults to DEFAULT_CFG.
             overrides (dict, optional): Configuration overrides. Defaults to None.
         """
-        self.args = get_cfg(cfg, overrides)
+        self.args = cfg
         self.check_resume(overrides)
         self.device = select_device(self.args.device, self.args.batch)
         self.validator = None
