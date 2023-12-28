@@ -45,7 +45,7 @@ MODEL:
 TRAIN:
   # Train settings -------------------------------------------------------------------------------------------------------
   model:  # (str, optional) path to model file, i.e. yolov8n.pt, yolov8n.yaml
-  data:  yolov8/cfg/datasets/ours.yaml
+  data:  yolov8_pytorch/cfg/datasets/ours.yaml
   epochs: 100  # (int) number of epochs to train for
   time:  # (float, optional) number of hours to train for, overrides epochs if supplied
   patience: 50  # (int) epochs to wait for no observable improvement for early stopping of training
