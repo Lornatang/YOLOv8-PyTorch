@@ -4,7 +4,7 @@ YOLO-NAS model interface.
 
 Example:
     ```python
-    from yolov8_pytorch import NAS
+    from yolov8_pytorch import YOLONAS
 
     model = NAS('yolo_nas_s')
     results = model.predict('yolov8_pytorch/assets/bus.jpg')
@@ -13,16 +13,16 @@ Example:
 
 from pathlib import Path
 
+import super_gradients
 import torch
 
 from yolov8_pytorch.engine.model import Model
 from yolov8_pytorch.utils.torch_utils import model_info, smart_inference_mode
-
 from .predict import NASPredictor
 from .val import NASValidator
 
 
-class NAS(Model):
+class YOLONAS(Model):
     """
     YOLO NAS model for object detection.
 
@@ -52,7 +52,6 @@ class NAS(Model):
     @smart_inference_mode()
     def _load(self, weights: str, task: str):
         """Loads an existing NAS model weights or creates a new NAS model with pretrained weights if not provided."""
-        import super_gradients
         suffix = Path(weights).suffix
         if suffix == '.pt':
             self.model = torch.load(weights)
