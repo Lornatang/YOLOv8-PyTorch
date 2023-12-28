@@ -73,29 +73,12 @@ class BaseModel(nn.Module):
         self.task = task  # task type
         model = str(model).strip()  # strip spaces
 
-        # Check if Triton Server model
-        if self.is_triton_model(model):
-            self.model = model
-            self.task = task
-            return
-
-        # Load or create new YOLO model
-        model = checks.check_model_file_from_stem(model)  # add suffix, i.e. yolov8n -> yolov8n.pt
-        if Path(model).suffix in ('.yaml', '.yml'):
-            self._new(model, task)
-        else:
-            self._load(model, task)
+        # create new YOLO model
+        self._new(model, task)
 
     def __call__(self, source=None, stream=False, **kwargs):
         """Calls the predict() method with given arguments to perform object detection."""
         return self.predict(source, stream, **kwargs)
-
-    @staticmethod
-    def is_triton_model(model):
-        """Is model a Triton Server URL string, i.e. <scheme>://<netloc>/<endpoint>/<task_name>"""
-        from urllib.parse import urlsplit
-        url = urlsplit(model)
-        return url.netloc and url.path and url.scheme in {'http', 'grpc'}
 
     def _new(self, cfg: str, task=None, model=None, verbose=True):
         """
@@ -240,26 +223,6 @@ class BaseModel(nn.Module):
         if prompts and hasattr(self.predictor, 'set_prompts'):  # for SAM-type models
             self.predictor.set_prompts(prompts)
         return self.predictor.predict_cli(source=source) if is_cli else self.predictor(source=source, stream=stream)
-
-    def track(self, source=None, stream=False, persist=False, **kwargs):
-        """
-        Perform object tracking on the input source using the registered trackers.
-
-        Args:
-            source (str, optional): The input source for object tracking. Can be a file path or a video stream.
-            stream (bool, optional): Whether the input source is a video stream. Defaults to False.
-            persist (bool, optional): Whether to persist the trackers if they already exist. Defaults to False.
-            **kwargs (optional): Additional keyword arguments for the tracking process.
-
-        Returns:
-            (List[yolov8_pytorch.engine.results.Results]): The tracking results.
-        """
-        if not hasattr(self.predictor, 'trackers'):
-            from yolov8_pytorch.trackers import register_tracker
-            register_tracker(self, persist)
-        kwargs['conf'] = kwargs.get('conf') or 0.1  # ByteTrack-based method needs low confidence predictions as input
-        kwargs['mode'] = 'track'
-        return self.predict(source=source, stream=stream, **kwargs)
 
     def val(self, validator=None, **kwargs):
         """
