@@ -1,12 +1,14 @@
-# Ultralytics YOLO 🚀, AGPL-3.0 license
-
-__version__ = '8.0.228'
-
-from yolov8_pytorch.models import RTDETR, SAM, YOLO
-from yolov8_pytorch.models.fastsam import FastSAM
-from yolov8_pytorch.models.yolo_nas import YOLONAS
-from yolov8_pytorch.utils import SETTINGS as settings
-from yolov8_pytorch.utils.checks import check_yolo as checks
-from yolov8_pytorch.utils.downloads import download
-
-__all__ = '__version__', 'YOLO', 'YOLONAS', 'SAM', 'FastSAM', 'RTDETR', 'checks', 'download', 'settings'
+# Copyright 2024 Apache License 2.0. All Rights Reserved.
+# Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+__version__ = "0.1.0"
