@@ -9,19 +9,18 @@ from yolov8_pytorch.utils import (DEFAULT_CFG_DICT, LOGGER, RANK, ROOT, RUNS_DIR
                                   SETTINGS, SETTINGS_YAML, TESTS_RUNNING, IterableSimpleNamespace, colorstr, deprecation_warn, yaml_load, yaml_print)
 
 # Define valid tasks and modes
-MODES = 'train', 'val', 'predict', 'export', 'track', 'benchmark'
-TASKS = 'detect', 'segment', 'classify', 'pose'
-TASK2DATA = {'detect': 'coco8.yaml', 'segment': 'coco8-seg.yaml', 'classify': 'imagenet10', 'pose': 'coco8-pose.yaml'}
+MODES = 'train', 'val', 'predict', 'export', 'benchmark'
+TASKS = 'detect', 'segment'
+TASK2DATA = {'detect': 'coco8.yaml', 'segment': 'coco8-seg.yaml'}
 TASK2MODEL = {
     'detect': 'yolov8n.pt',
     'segment': 'yolov8n-seg.pt',
-    'classify': 'yolov8n-cls.pt',
-    'pose': 'yolov8n-pose.pt'}
+
+}
 TASK2METRIC = {
     'detect': 'metrics/mAP50-95(B)',
     'segment': 'metrics/mAP50-95(M)',
-    'classify': 'metrics/accuracy_top1',
-    'pose': 'metrics/mAP50-95(P)'}
+}
 
 # Define keys for arg type checks
 CFG_FLOAT_KEYS = 'warmup_epochs', 'box', 'cls', 'dfl', 'degrees', 'shear', 'time'

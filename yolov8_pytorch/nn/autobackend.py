@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 from PIL import Image
 
-from yolov8_pytorch.utils import ARM64, LINUX, LOGGER, ROOT, yaml_load
+from yolov8_pytorch.utils import ARM64, LINUX, LOGGER, yaml_load
 from yolov8_pytorch.utils.checks import check_requirements, check_suffix, check_version, check_yaml
 from yolov8_pytorch.utils.downloads import attempt_download_asset, is_url
 
@@ -34,9 +34,6 @@ def check_class_names(names):
         if max(names.keys()) >= n:
             raise KeyError(f'{n}-class dataset requires class indices 0-{n - 1}, but you have invalid class indices '
                            f'{min(names.keys())}-{max(names.keys())} defined in your dataset YAML.')
-        if isinstance(names[0], str) and names[0].startswith('n0'):  # imagenet class codes, i.e. 'n01440764'
-            names_map = yaml_load(ROOT / 'cfg/datasets/ImageNet.yaml')['map']  # human-readable names
-            names = {k: names_map[v] for k, v in names.items()}
     return names
 
 

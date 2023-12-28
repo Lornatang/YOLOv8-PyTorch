@@ -19,11 +19,12 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from .seed import init_seed
 import yaml
+from omegaconf import OmegaConf
 from tqdm import tqdm as tqdm_original
 
 from yolov8_pytorch import __version__
+from .seed import init_seed
 
 # PyTorch Multi-GPU DDP Constants
 RANK = int(os.getenv('RANK', -1))
@@ -382,7 +383,7 @@ def yaml_print(yaml_file: Union[str, Path, dict]) -> None:
 
 
 # Default configuration
-DEFAULT_CFG_DICT = yaml_load(DEFAULT_CFG_PATH)
+DEFAULT_CFG_DICT = OmegaConf.load(DEFAULT_CFG_PATH)
 for k, v in DEFAULT_CFG_DICT.items():
     if isinstance(v, str) and v.lower() == 'none':
         DEFAULT_CFG_DICT[k] = None
