@@ -26,7 +26,7 @@ class PosePredictor(DetectionPredictor):
         self.args.task = 'pose'
         if isinstance(self.args.device, str) and self.args.device.lower() == 'mps':
             LOGGER.warning("WARNING ⚠️ Apple MPS known Pose bug. Recommend 'device=cpu' for Pose models. "
-                           'See https://github.com/ultralytics/ultralytics/issues/4031.')
+                           'See https://github.com/yolov8_pytorch/yolov8_pytorch/issues/4031.')
 
     def postprocess(self, preds, img, orig_imgs):
         """Return detection results for a given input image or list of images."""

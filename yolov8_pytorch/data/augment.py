@@ -13,9 +13,8 @@ from yolov8_pytorch.utils import LOGGER, colorstr
 from yolov8_pytorch.utils.checks import check_version
 from yolov8_pytorch.utils.instance import Instances
 from yolov8_pytorch.utils.metrics import bbox_ioa
-from yolov8_pytorch.utils.ops import segment2box
+from yolov8_pytorch.utils.ops import segment2box,polygons2masks, polygons2masks_overlap
 
-from .utils import polygons2masks, polygons2masks_overlap
 
 
 # TODO: we might need a BaseTransform to make all these augments be compatible with both classification and semantic

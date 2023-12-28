@@ -2,8 +2,8 @@
 
 from yolov8_pytorch.engine.model import Model
 from yolov8_pytorch.models import yolo  # noqa
-from yolov8_pytorch.nn.tasks import ClassificationModel, PoseModel, SegmentationModel
-from yolov8_pytorch_old.models.detect_model import DetectionModel
+from yolov8_pytorch.nn.tasks import ClassificationModel, DetectionModel, PoseModel, SegmentationModel
+
 
 class YOLO(Model):
     """YOLO (You Only Look Once) object detection model."""

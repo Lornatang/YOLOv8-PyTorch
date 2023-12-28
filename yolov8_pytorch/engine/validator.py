@@ -226,7 +226,7 @@ class BaseValidator:
         iou = iou.cpu().numpy()
         for i, threshold in enumerate(self.iouv.cpu().tolist()):
             if use_scipy:
-                # WARNING: known issue that reduces mAP in https://github.com/ultralytics/ultralytics/pull/4708
+                # WARNING: known issue that reduces mAP in https://github.com/yolov8_pytorch/yolov8_pytorch/pull/4708
                 import scipy  # scope import to avoid importing for all commands
                 cost_matrix = iou * (iou >= threshold)
                 if cost_matrix.any():

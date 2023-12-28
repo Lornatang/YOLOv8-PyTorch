@@ -31,7 +31,7 @@ class PoseTrainer(yolo.detect.DetectionTrainer):
 
         if isinstance(self.args.device, str) and self.args.device.lower() == 'mps':
             LOGGER.warning("WARNING ⚠️ Apple MPS known Pose bug. Recommend 'device=cpu' for Pose models. "
-                           'See https://github.com/ultralytics/ultralytics/issues/4031.')
+                           'See https://github.com/yolov8_pytorch/yolov8_pytorch/issues/4031.')
 
     def get_model(self, cfg=None, weights=None, verbose=True):
         """Get pose estimation model with specified configuration and weights."""

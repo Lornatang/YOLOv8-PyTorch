@@ -8,15 +8,15 @@ import torch
 import torch.nn as nn
 
 from yolov8_pytorch.nn.modules import (AIFI, C1, C2, C3, C3TR, SPP, SPPF, Bottleneck, BottleneckCSP, C2f, C3Ghost, C3x,
-                                       Classify, Concat, Conv, Conv2, ConvTranspose, Detect, DWConv, DWConvTranspose2d,
-                                       Focus, GhostBottleneck, GhostConv, HGBlock, HGStem, Pose, RepC3, RepConv,
-                                       ResNetLayer, RTDETRDecoder, Segment)
+                                    Classify, Concat, Conv, Conv2, ConvTranspose, Detect, DWConv, DWConvTranspose2d,
+                                    Focus, GhostBottleneck, GhostConv, HGBlock, HGStem, Pose, RepC3, RepConv,
+                                    ResNetLayer, RTDETRDecoder, Segment)
 from yolov8_pytorch.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from yolov8_pytorch.utils.checks import check_requirements, check_suffix, check_yaml
 from yolov8_pytorch.utils.loss import v8ClassificationLoss, v8DetectionLoss, v8PoseLoss, v8SegmentationLoss
 from yolov8_pytorch.utils.plotting import feature_visualization
 from yolov8_pytorch.utils.torch_utils import (fuse_conv_and_bn, fuse_deconv_and_bn, initialize_weights, intersect_dicts,
-                                              make_divisible, model_info, scale_img, time_sync)
+                                           make_divisible, model_info, scale_img, time_sync)
 
 try:
     import thop
@@ -41,7 +41,7 @@ class BaseModel(nn.Module):
             return self.loss(x, *args, **kwargs)
         return self.predict(x, *args, **kwargs)
 
-    def predict(self, x, profile=False, visualize=False, augment=False):
+    def predict(self, x, profile=False, visualize=False, augment=False, embed=None):
         """
         Perform a forward pass through the network.
 
@@ -50,15 +50,16 @@ class BaseModel(nn.Module):
             profile (bool):  Print the computation time of each layer if True, defaults to False.
             visualize (bool): Save the feature maps of the model if True, defaults to False.
             augment (bool): Augment image during prediction, defaults to False.
+            embed (list, optional): A list of feature vectors/embeddings to return.
 
         Returns:
             (torch.Tensor): The last output of the model.
         """
         if augment:
             return self._predict_augment(x)
-        return self._predict_once(x, profile, visualize)
+        return self._predict_once(x, profile, visualize, embed)
 
-    def _predict_once(self, x, profile=False, visualize=False):
+    def _predict_once(self, x, profile=False, visualize=False, embed=None):
         """
         Perform a forward pass through the network.
 
@@ -66,11 +67,12 @@ class BaseModel(nn.Module):
             x (torch.Tensor): The input tensor to the model.
             profile (bool):  Print the computation time of each layer if True, defaults to False.
             visualize (bool): Save the feature maps of the model if True, defaults to False.
+            embed (list, optional): A list of feature vectors/embeddings to return.
 
         Returns:
             (torch.Tensor): The last output of the model.
         """
-        y, dt = [], []  # outputs
+        y, dt, embeddings = [], [], []  # outputs
         for m in self.model:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
@@ -80,6 +82,10 @@ class BaseModel(nn.Module):
             y.append(x if m.i in self.save else None)  # save output
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
+            if embed and m.i in embed:
+                embeddings.append(nn.functional.adaptive_avg_pool2d(x, (1, 1)).squeeze(-1).squeeze(-1))  # flatten
+                if m.i == max(embed):
+                    return torch.unbind(torch.cat(embeddings, 1), dim=0)
         return x
 
     def _predict_augment(self, x):
@@ -454,7 +460,7 @@ class RTDETRDetectionModel(DetectionModel):
         return sum(loss.values()), torch.as_tensor([loss[k].detach() for k in ['loss_giou', 'loss_class', 'loss_bbox']],
                                                    device=img.device)
 
-    def predict(self, x, profile=False, visualize=False, batch=None, augment=False):
+    def predict(self, x, profile=False, visualize=False, batch=None, augment=False, embed=None):
         """
         Perform a forward pass through the model.
 
@@ -464,11 +470,12 @@ class RTDETRDetectionModel(DetectionModel):
             visualize (bool, optional): If True, save feature maps for visualization. Defaults to False.
             batch (dict, optional): Ground truth data for evaluation. Defaults to None.
             augment (bool, optional): If True, perform data augmentation during inference. Defaults to False.
+            embed (list, optional): A list of feature vectors/embeddings to return.
 
         Returns:
             (torch.Tensor): Model's output tensor.
         """
-        y, dt = [], []  # outputs
+        y, dt, embeddings = [], [], []  # outputs
         for m in self.model[:-1]:  # except the head part
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
@@ -478,6 +485,10 @@ class RTDETRDetectionModel(DetectionModel):
             y.append(x if m.i in self.save else None)  # save output
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
+            if embed and m.i in embed:
+                embeddings.append(nn.functional.adaptive_avg_pool2d(x, (1, 1)).squeeze(-1).squeeze(-1))  # flatten
+                if m.i == max(embed):
+                    return torch.unbind(torch.cat(embeddings, 1), dim=0)
         head = self.model[-1]
         x = head([y[j] for j in head.f], batch)  # head inference
         return x
@@ -570,8 +581,8 @@ def torch_safe_load(weight):
         if e.name == 'models':
             raise TypeError(
                 emojis(f'ERROR ❌️ {weight} appears to be an Ultralytics YOLOv5 model originally trained '
-                       f'with https://github.com/ultralytics/yolov5.\nThis model is NOT forwards compatible with '
-                       f'YOLOv8 at https://github.com/ultralytics/ultralytics.'
+                       f'with https://github.com/yolov8_pytorch/yolov5.\nThis model is NOT forwards compatible with '
+                       f'YOLOv8 at https://github.com/yolov8_pytorch/yolov8_pytorch.'
                        f"\nRecommend fixes are to train a new model using the latest 'yolov8_pytorch' package or to "
                        f"run a command with an official YOLOv8 model, i.e. 'yolo predict model=yolov8n.pt'")) from e
         LOGGER.warning(f"WARNING ⚠️ {weight} appears to require '{e.name}', which is not in yolov8_pytorch requirements."
@@ -739,7 +750,7 @@ def yaml_model_load(path):
         LOGGER.warning(f'WARNING ⚠️ Ultralytics YOLO P6 models now use -p6 suffix. Renaming {path.stem} to {new_stem}.')
         path = path.with_name(new_stem + path.suffix)
 
-    unified_path = re.sub(r'(\d+)([nslmx])(.+)?$', r'\1\3', str(path))  # i.e. yolov8x.yaml -> yolov8_pytorch_old.yaml
+    unified_path = re.sub(r'(\d+)([nslmx])(.+)?$', r'\1\3', str(path))  # i.e. yolov8x.yaml -> yolov8.yaml
     yaml_file = check_yaml(unified_path, hard=False) or check_yaml(path)
     d = yaml_load(yaml_file)  # model dict
     d['scale'] = guess_model_scale(path)

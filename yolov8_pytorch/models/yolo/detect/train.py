@@ -3,15 +3,14 @@
 from copy import copy
 
 import numpy as np
-from omegaconf import OmegaConf
 
 from yolov8_pytorch.data import build_dataloader, build_yolo_dataset
 from yolov8_pytorch.engine.trainer import BaseTrainer
 from yolov8_pytorch.models import yolo
+from yolov8_pytorch.nn.tasks import DetectionModel
 from yolov8_pytorch.utils import LOGGER, RANK
 from yolov8_pytorch.utils.plotting import plot_images, plot_labels, plot_results
 from yolov8_pytorch.utils.torch_utils import de_parallel, torch_distributed_zero_first
-from yolov8_pytorch_old.models.detect_model import DetectionModel
 
 
 class DetectionTrainer(BaseTrainer):
@@ -69,10 +68,7 @@ class DetectionTrainer(BaseTrainer):
 
     def get_model(self, cfg=None, weights=None, verbose=True):
         """Return a YOLO detection model."""
-        config = OmegaConf.load(cfg)
-        config = OmegaConf.create(config)
-        model_config = config.MODEL
-        model = DetectionModel(model_config, verbose=verbose and RANK == -1)
+        model = DetectionModel(cfg, nc=self.data['nc'], verbose=verbose and RANK == -1)
         if weights:
             model.load(weights)
         return model

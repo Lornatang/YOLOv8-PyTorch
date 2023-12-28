@@ -4,7 +4,6 @@ import inspect
 import sys
 from pathlib import Path
 from typing import Union
-from omegaconf import OmegaConf
 
 from yolov8_pytorch.cfg import TASK2DATA, get_cfg, get_save_dir
 from yolov8_pytorch.hub.utils import HUB_WEB_ROOT
@@ -75,7 +74,7 @@ class Model(nn.Module):
         self.task = task  # task type
         model = str(model).strip()  # strip spaces
 
-        # Check if Ultralytics HUB model from https://hub.ultralytics.com
+        # Check if Ultralytics HUB model from https://hub.yolov8_pytorch.com
         if self.is_hub_model(model):
             from yolov8_pytorch.hub.session import HUBTrainingSession
             self.session = HUBTrainingSession(model)
@@ -95,7 +94,7 @@ class Model(nn.Module):
             self._load(model, task)
 
     def __call__(self, source=None, stream=False, **kwargs):
-        """Calls the 'predict' function with given arguments to perform object detection."""
+        """Calls the predict() method with given arguments to perform object detection."""
         return self.predict(source, stream, **kwargs)
 
     @staticmethod
@@ -109,7 +108,7 @@ class Model(nn.Module):
     def is_hub_model(model):
         """Check if the provided model is a HUB model."""
         return any((
-            model.startswith(f'{HUB_WEB_ROOT}/models/'),  # i.e. https://hub.ultralytics.com/models/MODEL_ID
+            model.startswith(f'{HUB_WEB_ROOT}/models/'),  # i.e. https://hub.yolov8_pytorch.com/models/MODEL_ID
             [len(x) for x in model.split('_')] == [42, 20],  # APIKEY_MODELID
             len(model) == 20 and not Path(model).exists() and all(x not in model for x in './\\')))  # MODELID
 
@@ -123,12 +122,10 @@ class Model(nn.Module):
             model (BaseModel): Customized model.
             verbose (bool): display model info on load
         """
+        cfg_dict = yaml_model_load(cfg)
         self.cfg = cfg
-        self.task = "detect"
-        config = OmegaConf.load(cfg)
-        config = OmegaConf.create(config)
-        model_config = config.MODEL
-        self.model = (model or self._smart_load('model'))(model_config, verbose=verbose and RANK == -1)  # build model
+        self.task = task or guess_model_task(cfg_dict)
+        self.model = (model or self._smart_load('model'))(cfg_dict, verbose=verbose and RANK == -1)  # build model
         self.overrides['model'] = self.cfg
         self.overrides['task'] = self.task
 
@@ -203,6 +200,24 @@ class Model(nn.Module):
         """Fuse PyTorch Conv2d and BatchNorm2d layers."""
         self._check_is_pytorch_model()
         self.model.fuse()
+
+    def embed(self, source=None, stream=False, **kwargs):
+        """
+        Calls the predict() method and returns image embeddings.
+
+        Args:
+            source (str | int | PIL | np.ndarray): The source of the image to make predictions on.
+                Accepts all source types accepted by the YOLO model.
+            stream (bool): Whether to stream the predictions or not. Defaults to False.
+            **kwargs : Additional keyword arguments passed to the predictor.
+                Check the 'configuration' section in the documentation for all available options.
+
+        Returns:
+            (List[torch.Tensor]): A list of image embeddings.
+        """
+        if not kwargs.get('embed'):
+            kwargs['embed'] = [len(self.model.model) - 2]  # embed second-to-last layer if no indices passed
+        return self.predict(source, stream, **kwargs)
 
     def predict(self, source=None, stream=False, predictor=None, **kwargs):
         """

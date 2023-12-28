@@ -60,8 +60,8 @@ class Detect(nn.Module):
 
         if self.export and self.format in ('tflite', 'edgetpu'):
             # Normalize xywh with image size to mitigate quantization error of TFLite integer models as done in YOLOv5:
-            # https://github.com/ultralytics/yolov5/blob/0c8de3fca4a702f8ff5c435e67f378d1fce70243/models/tf.py#L307-L309
-            # See this PR for details: https://github.com/ultralytics/ultralytics/pull/1695
+            # https://github.com/yolov8_pytorch/yolov5/blob/0c8de3fca4a702f8ff5c435e67f378d1fce70243/models/tf.py#L307-L309
+            # See this PR for details: https://github.com/yolov8_pytorch/yolov8_pytorch/pull/1695
             img_h = shape[2] * self.stride[0]
             img_w = shape[3] * self.stride[0]
             img_size = torch.tensor([img_w, img_h, img_w, img_h], device=dbox.device).reshape(1, 4, 1)

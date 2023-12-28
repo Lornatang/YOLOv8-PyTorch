@@ -35,7 +35,7 @@ class PoseValidator(DetectionValidator):
         self.metrics = PoseMetrics(save_dir=self.save_dir, on_plot=self.on_plot)
         if isinstance(self.args.device, str) and self.args.device.lower() == 'mps':
             LOGGER.warning("WARNING ⚠️ Apple MPS known Pose bug. Recommend 'device=cpu' for Pose models. "
-                           'See https://github.com/ultralytics/ultralytics/issues/4031.')
+                           'See https://github.com/yolov8_pytorch/yolov8_pytorch/issues/4031.')
 
     def preprocess(self, batch):
         """Preprocesses the batch by converting the 'keypoints' data into a float and moving it to the device."""

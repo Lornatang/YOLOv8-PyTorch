@@ -300,7 +300,7 @@ class AutoBackend(nn.Module):
         else:
             from yolov8_pytorch.engine.exporter import export_formats
             raise TypeError(f"model='{w}' is not a supported model format. "
-                            'See https://docs.ultralytics.com/modes/predict for help.'
+                            'See https://docs.yolov8_pytorch.com/modes/predict for help.'
                             f'\n\n{export_formats()}')
 
         # Load external metadata YAML
@@ -333,7 +333,7 @@ class AutoBackend(nn.Module):
 
         self.__dict__.update(locals())  # assign all variables to self
 
-    def forward(self, im, augment=False, visualize=False):
+    def forward(self, im, augment=False, visualize=False, embed=None):
         """
         Runs inference on the YOLOv8 MultiBackend model.
 
@@ -341,6 +341,7 @@ class AutoBackend(nn.Module):
             im (torch.Tensor): The image tensor to perform inference on.
             augment (bool): whether to perform data augmentation during inference, defaults to False
             visualize (bool): whether to visualize the output predictions, defaults to False
+            embed (list, optional): A list of feature vectors/embeddings to return.
 
         Returns:
             (tuple): Tuple containing the raw output tensor, and processed output for visualization (if visualize=True)
@@ -352,7 +353,7 @@ class AutoBackend(nn.Module):
             im = im.permute(0, 2, 3, 1)  # torch BCHW to numpy BHWC shape(1,320,192,3)
 
         if self.pt or self.nn_module:  # PyTorch
-            y = self.model(im, augment=augment, visualize=visualize) if augment or visualize else self.model(im)
+            y = self.model(im, augment=augment, visualize=visualize, embed=embed)
         elif self.jit:  # TorchScript
             y = self.model(im)
         elif self.dnn:  # ONNX OpenCV DNN
@@ -440,7 +441,7 @@ class AutoBackend(nn.Module):
                         scale, zero_point = output['quantization']
                         x = (x.astype(np.float32) - zero_point) * scale  # re-scale
                     if x.ndim > 2:  # if task is not classification
-                        # Denormalize xywh by image size. See https://github.com/ultralytics/ultralytics/pull/1695
+                        # Denormalize xywh by image size. See https://github.com/yolov8_pytorch/yolov8_pytorch/pull/1695
                         # xywh are normalized in TFLite/EdgeTPU to mitigate quantization error of integer models
                         x[:, [0, 2]] *= w
                         x[:, [1, 3]] *= h

@@ -66,10 +66,9 @@ from yolov8_pytorch.data.dataset import YOLODataset
 from yolov8_pytorch.data.utils import check_det_dataset
 from yolov8_pytorch.nn.autobackend import check_class_names, default_class_names
 from yolov8_pytorch.nn.modules import C2f, Detect, RTDETRDecoder
-from yolov8_pytorch.nn.tasks import SegmentationModel
-from yolov8_pytorch_old.models.detect_model import DetectionModel
+from yolov8_pytorch.nn.tasks import DetectionModel, SegmentationModel
 from yolov8_pytorch.utils import (ARM64, DEFAULT_CFG, LINUX, LOGGER, MACOS, ROOT, WINDOWS, __version__, callbacks,
-                                  colorstr, get_default_args, yaml_save)
+                               colorstr, get_default_args, yaml_save)
 from yolov8_pytorch.utils.checks import check_imgsz, check_is_path_safe, check_requirements, check_version
 from yolov8_pytorch.utils.downloads import attempt_download_asset, get_github_assets
 from yolov8_pytorch.utils.files import file_size, spaces_in_path
@@ -233,7 +232,7 @@ class Exporter:
         self.metadata = {
             'description': description,
             'author': 'Ultralytics',
-            'license': 'AGPL-3.0 https://ultralytics.com/license',
+            'license': 'AGPL-3.0 https://yolov8_pytorch.com/license',
             'date': datetime.now().isoformat(),
             'version': __version__,
             'stride': int(max(model.stride)),
@@ -580,6 +579,8 @@ class Exporter:
     def export_engine(self, prefix=colorstr('TensorRT:')):
         """YOLOv8 TensorRT export https://developer.nvidia.com/tensorrt."""
         assert self.im.device.type != 'cpu', "export running on CPU but must be on GPU, i.e. use 'device=0'"
+        f_onnx, _ = self.export_onnx()  # run before trt import https://github.com/yolov8_pytorch/yolov8_pytorch/issues/7016
+
         try:
             import tensorrt as trt  # noqa
         except ImportError:
@@ -588,8 +589,8 @@ class Exporter:
             import tensorrt as trt  # noqa
 
         check_version(trt.__version__, '7.0.0', hard=True)  # require tensorrt>=7.0.0
+
         self.args.simplify = True
-        f_onnx, _ = self.export_onnx()
 
         LOGGER.info(f'\n{prefix} starting export with TensorRT {trt.__version__}...')
         assert Path(f_onnx).exists(), f'failed to export ONNX file: {f_onnx}'
@@ -663,7 +664,7 @@ class Exporter:
                       '<=2.13.1',
                       name='tensorflow',
                       verbose=True,
-                      msg='https://github.com/ultralytics/ultralytics/issues/5161')
+                      msg='https://github.com/yolov8_pytorch/yolov8_pytorch/issues/5161')
         f = Path(str(self.file).replace(self.file.suffix, '_saved_model'))
         if f.is_dir():
             import shutil
@@ -758,7 +759,7 @@ class Exporter:
     @try_export
     def export_edgetpu(self, tflite_model='', prefix=colorstr('Edge TPU:')):
         """YOLOv8 Edge TPU export https://coral.ai/docs/edgetpu/models-intro/."""
-        LOGGER.warning(f'{prefix} WARNING ⚠️ Edge TPU known bug https://github.com/ultralytics/ultralytics/issues/1185')
+        LOGGER.warning(f'{prefix} WARNING ⚠️ Edge TPU known bug https://github.com/yolov8_pytorch/yolov8_pytorch/issues/1185')
 
         cmd = 'edgetpu_compiler --version'
         help_url = 'https://coral.ai/docs/edgetpu/compiler/'
