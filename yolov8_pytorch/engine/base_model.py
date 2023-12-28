@@ -101,55 +101,8 @@ class BaseModel(nn.Module):
         self.model.args = {**DEFAULT_CFG_DICT, **self.overrides}  # combine default and model args (prefer model args)
         self.model.task = self.task
 
-    def _load(self, weights: str, task=None):
-        """
-        Initializes a new model and infers the task type from the model head.
-
-        Args:
-            weights (str): model checkpoint to be loaded
-            task (str | None): model task
-        """
-        suffix = Path(weights).suffix
-        if suffix == '.pt':
-            self.model, self.ckpt = attempt_load_one_weight(weights)
-            self.task = self.model.args['task']
-            self.overrides = self.model.args = self._reset_ckpt_args(self.model.args)
-            self.ckpt_path = self.model.pt_path
-        else:
-            weights = checks.check_file(weights)
-            self.model, self.ckpt = weights, None
-            self.task = task or guess_model_task(weights)
-            self.ckpt_path = weights
-        self.overrides['model'] = weights
-        self.overrides['task'] = self.task
-
-    def _check_is_pytorch_model(self):
-        """Raises TypeError is model is not a PyTorch model."""
-        pt_str = isinstance(self.model, (str, Path)) and Path(self.model).suffix == '.pt'
-        pt_module = isinstance(self.model, nn.Module)
-        if not (pt_module or pt_str):
-            raise TypeError(
-                f"model='{self.model}' should be a *.pt PyTorch model to run this method, but is a different format. "
-                f"PyTorch models can train, val, predict and export, i.e. 'model.train(data=...)', but exported "
-                f"formats like ONNX, TensorRT etc. only support 'predict' and 'val' modes, "
-                f"i.e. 'yolo predict model=yolov8n.onnx'.\nTo run CUDA or MPS inference please pass the device "
-                f"argument directly in your inference command, i.e. 'model.predict(source=..., device=0)'")
-
-    def reset_weights(self):
-        """Resets the model modules parameters to randomly initialized values, losing all training information."""
-        self._check_is_pytorch_model()
-        for m in self.model.modules():
-            if hasattr(m, 'reset_parameters'):
-                m.reset_parameters()
-        for p in self.model.parameters():
-            p.requires_grad = True
-        return self
-
     def load(self, weights='yolov8n.pt'):
         """Transfers parameters with matching names and shapes from 'weights' to model."""
-        self._check_is_pytorch_model()
-        if isinstance(weights, (str, Path)):
-            weights, self.ckpt = attempt_load_one_weight(weights)
         self.model.load(weights)
         return self
 
@@ -161,12 +114,10 @@ class BaseModel(nn.Module):
             detailed (bool): Show detailed information about model.
             verbose (bool): Controls verbosity.
         """
-        self._check_is_pytorch_model()
         return self.model.info(detailed=detailed, verbose=verbose)
 
     def fuse(self):
         """Fuse PyTorch Conv2d and BatchNorm2d layers."""
-        self._check_is_pytorch_model()
         self.model.fuse()
 
     def embed(self, source=None, stream=False, **kwargs):
@@ -247,7 +198,6 @@ class BaseModel(nn.Module):
         Args:
             **kwargs : Any other args accepted by the validators. To see all args check 'configuration' section in docs
         """
-        self._check_is_pytorch_model()
         from yolov8_pytorch.utils.benchmarks import benchmark
 
         custom = {'verbose': False}  # method defaults
@@ -268,7 +218,6 @@ class BaseModel(nn.Module):
         Args:
             **kwargs : Any other args accepted by the Exporter. To see all args check 'configuration' section in docs.
         """
-        self._check_is_pytorch_model()
         from .exporter import Exporter
 
         custom = {'imgsz': self.model.args['imgsz'], 'batch': 1, 'data': None, 'verbose': False}  # method defaults
@@ -283,7 +232,6 @@ class BaseModel(nn.Module):
             trainer (BaseTrainer, optional): Customized trainer.
             **kwargs (Any): Any number of arguments representing the training configuration.
         """
-        self._check_is_pytorch_model()
         if self.session:  # Ultralytics HUB session
             if any(kwargs):
                 LOGGER.warning('WARNING ⚠️ using HUB training arguments, ignoring local training arguments.')
@@ -317,7 +265,6 @@ class BaseModel(nn.Module):
         Returns:
             (dict): A dictionary containing the results of the hyperparameter search.
         """
-        self._check_is_pytorch_model()
         if use_ray:
             from yolov8_pytorch.utils.tuner import run_ray_tune
             return run_ray_tune(self, max_samples=iterations, *args, **kwargs)
@@ -330,7 +277,6 @@ class BaseModel(nn.Module):
 
     def _apply(self, fn):
         """Apply to(), cpu(), cuda(), half(), float() to model tensors that are not parameters or registered buffers."""
-        self._check_is_pytorch_model()
         self = super()._apply(fn)  # noqa
         self.predictor = None  # reset predictor as device may have changed
         self.overrides['device'] = self.device  # was str(self.device) i.e. device(type='cuda', index=0) -> 'cuda:0'
