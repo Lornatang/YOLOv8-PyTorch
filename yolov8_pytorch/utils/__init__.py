@@ -33,7 +33,7 @@ LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[1]  # YOLO
 ASSETS = ROOT / 'assets'  # default images
-DEFAULT_CFG_PATH = ROOT / 'cfg/default.yaml'
+DEFAULT_CFG_PATH = 'configs/base.yaml'
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of YOLOv5 multiprocessing threads
 AUTOINSTALL = str(os.getenv('YOLO_AUTOINSTALL', True)).lower() == 'true'  # global auto-install mode
 VERBOSE = str(os.getenv('YOLO_VERBOSE', True)).lower() == 'true'  # global verbose mode
@@ -172,10 +172,8 @@ class IterableSimpleNamespace(SimpleNamespace):
         name = self.__class__.__name__
         raise AttributeError(f"""
             '{name}' object has no attribute '{attr}'. This may be caused by a modified or out of date yolov8_pytorch
-            'default.yaml' file.\nPlease update your code with 'pip install -U yolov8_pytorch' and if necessary replace
-            {DEFAULT_CFG_PATH} with the latest version from
-            https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/default.yaml
-            """)
+            \nPlease update your code with 'pip install -U yolov8_pytorch' and if necessary replace
+            the latest version from""")
 
     def get(self, key, default=None):
         """Return the value of the specified key if it exists; otherwise, return the default value."""

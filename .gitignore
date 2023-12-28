@@ -4,6 +4,10 @@ datasets/coco128
 runs
 wandb
 
+*.jpg
+*.jpeg
+*.png
+*.bmp
 *.pt
 *.pth
 *.pkl
