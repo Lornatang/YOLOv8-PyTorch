@@ -4,6 +4,7 @@
 from collections import defaultdict
 from copy import deepcopy
 
+
 # Trainer callbacks ----------------------------------------------------------------------------------------------------
 
 
@@ -198,15 +199,11 @@ def add_integration_callbacks(instance):
 
     # Load training callbacks
     if 'Trainer' in instance.__class__.__name__:
-        from .clearml import callbacks as clear_cb
-        from .comet import callbacks as comet_cb
-        from .dvc import callbacks as dvc_cb
-        from .mlflow import callbacks as mlflow_cb
-        from .neptune import callbacks as neptune_cb
-        from .raytune import callbacks as tune_cb
         from .tensorboard import callbacks as tb_cb
         from .wb import callbacks as wb_cb
-        callbacks_list.extend([clear_cb, comet_cb, dvc_cb, mlflow_cb, neptune_cb, tune_cb, tb_cb, wb_cb])
+        from .clearml import callbacks as clear_cb
+        from .neptune import callbacks as neptune_cb
+        callbacks_list.extend([tb_cb, wb_cb, clear_cb, neptune_cb])
 
     # Add the callbacks to the callbacks dictionary
     for callbacks in callbacks_list:
