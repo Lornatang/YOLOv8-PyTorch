@@ -103,6 +103,8 @@ class BaseModel(nn.Module):
 
     def load(self, weights='yolov8n.pt'):
         """Transfers parameters with matching names and shapes from 'weights' to model."""
+        if isinstance(weights, (str, Path)):
+            weights, self.ckpt = attempt_load_one_weight(weights)
         self.model.load(weights)
         return self
 
