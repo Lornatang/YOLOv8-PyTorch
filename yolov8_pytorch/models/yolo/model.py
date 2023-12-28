@@ -2,7 +2,7 @@
 
 from yolov8_pytorch.engine.base_model import BaseModel
 from yolov8_pytorch.models import yolo  # noqa
-from yolov8_pytorch.nn.tasks import ClassificationModel, DetectionModel, PoseModel, SegmentationModel
+from yolov8_pytorch.nn.tasks import DetectionModel, SegmentationModel
 
 
 class YOLO(BaseModel):
@@ -12,11 +12,6 @@ class YOLO(BaseModel):
     def task_map(self):
         """Map head to model, trainer, validator, and predictor classes."""
         return {
-            'classify': {
-                'model': ClassificationModel,
-                'trainer': yolo.classify.ClassificationTrainer,
-                'validator': yolo.classify.ClassificationValidator,
-                'predictor': yolo.classify.ClassificationPredictor, },
             'detect': {
                 'model': DetectionModel,
                 'trainer': yolo.detect.DetectionTrainer,
@@ -27,8 +22,4 @@ class YOLO(BaseModel):
                 'trainer': yolo.segment.SegmentationTrainer,
                 'validator': yolo.segment.SegmentationValidator,
                 'predictor': yolo.segment.SegmentationPredictor, },
-            'pose': {
-                'model': PoseModel,
-                'trainer': yolo.pose.PoseTrainer,
-                'validator': yolo.pose.PoseValidator,
-                'predictor': yolo.pose.PosePredictor, }, }
+        }

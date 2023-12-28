@@ -8,15 +8,15 @@ import torch
 import torch.nn as nn
 
 from yolov8_pytorch.nn.modules import (AIFI, C1, C2, C3, C3TR, SPP, SPPF, Bottleneck, BottleneckCSP, C2f, C3Ghost, C3x,
-                                    Classify, Concat, Conv, Conv2, ConvTranspose, Detect, DWConv, DWConvTranspose2d,
-                                    Focus, GhostBottleneck, GhostConv, HGBlock, HGStem, Pose, RepC3, RepConv,
-                                    ResNetLayer, RTDETRDecoder, Segment)
+                                       Classify, Concat, Conv, Conv2, ConvTranspose, Detect, DWConv, DWConvTranspose2d,
+                                       Focus, GhostBottleneck, GhostConv, HGBlock, HGStem, Pose, RepC3, RepConv,
+                                       ResNetLayer, RTDETRDecoder, Segment)
 from yolov8_pytorch.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from yolov8_pytorch.utils.checks import check_requirements, check_suffix, check_yaml
-from yolov8_pytorch.utils.loss import v8ClassificationLoss, v8DetectionLoss, v8PoseLoss, v8SegmentationLoss
+from yolov8_pytorch.utils.loss import v8DetectionLoss, v8SegmentationLoss
 from yolov8_pytorch.utils.plotting import feature_visualization
 from yolov8_pytorch.utils.torch_utils import (fuse_conv_and_bn, fuse_deconv_and_bn, initialize_weights, intersect_dicts,
-                                           make_divisible, model_info, scale_img, time_sync)
+                                              make_divisible, model_info, scale_img, time_sync)
 
 try:
     import thop
@@ -310,73 +310,6 @@ class SegmentationModel(DetectionModel):
         return v8SegmentationLoss(self)
 
 
-class PoseModel(DetectionModel):
-    """YOLOv8 pose model."""
-
-    def __init__(self, cfg='yolov8n-pose.yaml', ch=3, nc=None, data_kpt_shape=(None, None), verbose=True):
-        """Initialize YOLOv8 Pose model."""
-        if not isinstance(cfg, dict):
-            cfg = yaml_model_load(cfg)  # load model YAML
-        if any(data_kpt_shape) and list(data_kpt_shape) != list(cfg['kpt_shape']):
-            LOGGER.info(f"Overriding model.yaml kpt_shape={cfg['kpt_shape']} with kpt_shape={data_kpt_shape}")
-            cfg['kpt_shape'] = data_kpt_shape
-        super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
-
-    def init_criterion(self):
-        """Initialize the loss criterion for the PoseModel."""
-        return v8PoseLoss(self)
-
-
-class ClassificationModel(BaseModel):
-    """YOLOv8 classification model."""
-
-    def __init__(self, cfg='yolov8n-cls.yaml', ch=3, nc=None, verbose=True):
-        """Init ClassificationModel with YAML, channels, number of classes, verbose flag."""
-        super().__init__()
-        self._from_yaml(cfg, ch, nc, verbose)
-
-    def _from_yaml(self, cfg, ch, nc, verbose):
-        """Set YOLOv8 model configurations and define the model architecture."""
-        self.yaml = cfg if isinstance(cfg, dict) else yaml_model_load(cfg)  # cfg dict
-
-        # Define model
-        ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels
-        if nc and nc != self.yaml['nc']:
-            LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
-            self.yaml['nc'] = nc  # override YAML value
-        elif not nc and not self.yaml.get('nc', None):
-            raise ValueError('nc not specified. Must specify nc in model.yaml or function arguments.')
-        self.model, self.save = parse_model(deepcopy(self.yaml), ch=ch, verbose=verbose)  # model, savelist
-        self.stride = torch.Tensor([1])  # no stride constraints
-        self.names = {i: f'{i}' for i in range(self.yaml['nc'])}  # default names dict
-        self.info()
-
-    @staticmethod
-    def reshape_outputs(model, nc):
-        """Update a TorchVision classification model to class count 'n' if required."""
-        name, m = list((model.model if hasattr(model, 'model') else model).named_children())[-1]  # last module
-        if isinstance(m, Classify):  # YOLO Classify() head
-            if m.linear.out_features != nc:
-                m.linear = nn.Linear(m.linear.in_features, nc)
-        elif isinstance(m, nn.Linear):  # ResNet, EfficientNet
-            if m.out_features != nc:
-                setattr(model, name, nn.Linear(m.in_features, nc))
-        elif isinstance(m, nn.Sequential):
-            types = [type(x) for x in m]
-            if nn.Linear in types:
-                i = types.index(nn.Linear)  # nn.Linear index
-                if m[i].out_features != nc:
-                    m[i] = nn.Linear(m[i].in_features, nc)
-            elif nn.Conv2d in types:
-                i = types.index(nn.Conv2d)  # nn.Conv2d index
-                if m[i].out_channels != nc:
-                    m[i] = nn.Conv2d(m[i].in_channels, nc, m[i].kernel_size, m[i].stride, bias=m[i].bias is not None)
-
-    def init_criterion(self):
-        """Initialize the loss criterion for the ClassificationModel."""
-        return v8ClassificationLoss()
-
-
 class RTDETRDetectionModel(DetectionModel):
     """
     RTDETR (Real-time DEtection and Tracking using Transformers) Detection Model class.
@@ -572,9 +505,9 @@ def torch_safe_load(weight):
     file = attempt_download_asset(weight)  # search online if missing locally
     try:
         with temporary_modules({
-                'yolov8_pytorch.yolo.utils': 'yolov8_pytorch.utils',
-                'yolov8_pytorch.yolo.v8': 'yolov8_pytorch.models.yolo',
-                'yolov8_pytorch.yolo.data': 'yolov8_pytorch.data'}):  # for legacy 8.0 Classify and Pose models
+            'yolov8_pytorch.yolo.utils': 'yolov8_pytorch.utils',
+            'yolov8_pytorch.yolo.v8': 'yolov8_pytorch.models.yolo',
+            'yolov8_pytorch.yolo.data': 'yolov8_pytorch.data'}):  # for legacy 8.0 Classify and Pose models
             return torch.load(file, map_location='cpu'), file  # load
 
     except ModuleNotFoundError as e:  # e.name is missing module name
