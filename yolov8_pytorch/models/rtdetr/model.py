@@ -23,19 +23,19 @@ class RTDETR(BaseModel):
         model (str): Path to the pre-trained model. Defaults to 'rtdetr-l.pt'.
     """
 
-    def __init__(self, model='rtdetr-l.pt') -> None:
+    def __init__(self, config_dict='rtdetr-l.pt') -> None:
         """
         Initializes the RT-DETR model with the given pre-trained model file. Supports .pt and .yaml formats.
 
         Args:
-            model (str): Path to the pre-trained model. Defaults to 'rtdetr-l.pt'.
+            config_dict (str): Path to the pre-trained model. Defaults to 'rtdetr-l.pt'.
 
         Raises:
             NotImplementedError: If the model file extension is not 'pt', 'yaml', or 'yml'.
         """
-        if model and model.split('.')[-1] not in ('pt', 'yaml', 'yml'):
+        if config_dict and config_dict.split('.')[-1] not in ('pt', 'yaml', 'yml'):
             raise NotImplementedError('RT-DETR only supports creating from *.pt, *.yaml, or *.yml files.')
-        super().__init__(model=model, task='detect')
+        super().__init__(config_dict=config_dict, task='detect')
 
     @property
     def task_map(self) -> dict:

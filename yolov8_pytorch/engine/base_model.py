@@ -1,13 +1,17 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
 import inspect
+import logging
 import sys
 from pathlib import Path
 from typing import Union
 
 from yolov8_pytorch.cfg import TASK2DATA, get_cfg, get_save_dir
-from yolov8_pytorch.nn.tasks import attempt_load_one_weight, guess_model_task, nn, yaml_model_load
-from yolov8_pytorch.utils import ASSETS, DEFAULT_CFG_DICT, LOGGER, RANK, callbacks, checks, emojis, yaml_load
+from yolov8_pytorch.nn.tasks import attempt_load_one_weight, nn, yaml_model_load
+from yolov8_pytorch.utils import ASSETS, DEFAULT_CFG_DICT, LOGGER, RANK, callbacks, checks, yaml_load
+from omegaconf import OmegaConf, DictConfig
+
+logger = logging.getLogger(__name__)
 
 
 class BaseModel(nn.Module):
@@ -15,7 +19,7 @@ class BaseModel(nn.Module):
     A base class to unify APIs for all models.
 
     Args:
-        model (str, Path): Path to the model file to load or create.
+        config_dict (str, Path): Path to the model file to load or create.
         task (Any, optional): Task type for the YOLO model. Defaults to None.
 
     Attributes:
@@ -51,13 +55,12 @@ class BaseModel(nn.Module):
         list(yolov8_pytorch.engine.results.Results): The prediction results.
     """
 
-    def __init__(self, model: Union[str, Path] = 'yolov8n.pt', task=None) -> None:
+    def __init__(self, config_dict: DictConfig, task: str, verbose: bool = True) -> None:
         """
         Initializes the YOLO model.
 
         Args:
-            model (Union[str, Path], optional): Path or name of the model to load or create. Defaults to 'yolov8n.pt'.
-            task (Any, optional): Task type for the YOLO model. Defaults to None.
+            config_dict (Union[str, Path], optional): Path or name of the model to load or create. Defaults to 'yolov8n.pt'.
         """
         super().__init__()
         self.callbacks = callbacks.get_default_callbacks()
@@ -65,41 +68,25 @@ class BaseModel(nn.Module):
         self.model = None  # model object
         self.trainer = None  # trainer object
         self.ckpt = None  # if loaded from *.pt
-        self.cfg = None  # if loaded from *.yaml
         self.ckpt_path = None
         self.overrides = {}  # overrides for trainer object
         self.metrics = None  # validation/training metrics
         self.session = None  # HUB session
         self.task = task  # task type
-        model = str(model).strip()  # strip spaces
 
         # create new YOLO model
-        self._new(model, task)
-
-    def __call__(self, source=None, stream=False, **kwargs):
-        """Calls the predict() method with given arguments to perform object detection."""
-        return self.predict(source, stream, **kwargs)
-
-    def _new(self, cfg: str, task=None, model=None, verbose=True):
-        """
-        Initializes a new model and infers the task type from the model definitions.
-
-        Args:
-            cfg (str): model configuration file
-            task (str | None): model task
-            model (BaseModel): Customized model.
-            verbose (bool): display model info on load
-        """
-        cfg_dict = yaml_model_load(cfg)
-        self.cfg = cfg
-        self.task = task or guess_model_task(cfg_dict)
-        self.model = (model or self._smart_load('model'))(cfg_dict, verbose=verbose and RANK == -1)  # build model
+        self.cfg = config_dict
+        self.model = self._smart_load('model')(config_dict.MODEL, verbose=verbose and RANK == -1)  # build model
         self.overrides['model'] = self.cfg
         self.overrides['task'] = self.task
 
         # Below added to allow export from YAMLs
         self.model.args = {**DEFAULT_CFG_DICT, **self.overrides}  # combine default and model args (prefer model args)
         self.model.task = self.task
+
+    def __call__(self, source=None, stream=False, **kwargs):
+        """Calls the predict() method with given arguments to perform object detection."""
+        return self.predict(source, stream, **kwargs)
 
     def load(self, weights='yolov8n.pt'):
         """Transfers parameters with matching names and shapes from 'weights' to model."""
@@ -326,7 +313,7 @@ class BaseModel(nn.Module):
             name = self.__class__.__name__
             mode = inspect.stack()[1][3]  # get the function name.
             raise NotImplementedError(
-                emojis(f"WARNING ⚠️ '{name}' model does not support '{mode}' mode for '{self.task}' task yet.")) from e
+                logger.warning(f"'{name}' model does not support '{mode}' mode for '{self.task}' task.")) from e
 
     @property
     def task_map(self):

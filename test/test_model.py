@@ -13,13 +13,14 @@
 # ==============================================================================
 from omegaconf import OmegaConf
 
-from yolov8_pytorch_old.models import DetectionModel
+from yolov8_pytorch.models import YOLO
+from yolov8_pytorch.nn.tasks import create_model_from_yaml
 
 model_config_path = "../configs/COCO-Detection/yolov8n-ours.yaml"
 
-config = OmegaConf.load(model_config_path)
-config = OmegaConf.create(config)
-model_config = config.MODEL
+model_config = OmegaConf.load(model_config_path)
+model_config = OmegaConf.create(model_config)
 
 if __name__ == "__main__":
-    DetectionModel(model_config, verbose=True)
+    # model = create_model_from_yaml(model_config.MODEL, True)
+    model = YOLO(model_config, task="detect", verbose=True).load("yolov8n.pt")
