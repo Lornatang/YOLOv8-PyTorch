@@ -31,7 +31,7 @@ class RTDETRTrainer(DetectionTrainer):
         ```
     """
 
-    def get_model(self, cfg=None, weights=None, verbose=True):
+    def get_model(self, config_dict=None, weights=None, verbose=True):
         """
         Initialize and return an RT-DETR model for object detection tasks.
 

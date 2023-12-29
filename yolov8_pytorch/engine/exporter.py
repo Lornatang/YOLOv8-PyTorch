@@ -898,7 +898,7 @@ class Exporter:
         if MACOS:
             from PIL import Image
             img = Image.new('RGB', (w, h))  # w=192, h=320
-            out = model.predict({'image': img})
+            out = model.inference({'image': img})
             out0_shape = out[out0.name].shape  # (3780, 80)
             out1_shape = out[out1.name].shape  # (3780, 4)
         else:  # linux and windows can not run model.predict(), get sizes from PyTorch model output y

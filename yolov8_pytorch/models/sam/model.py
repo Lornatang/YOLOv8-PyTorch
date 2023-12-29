@@ -55,7 +55,7 @@ class SAM(ModelEngine):
         """
         self.model = build_sam(weights)
 
-    def predict(self, source, stream=False, bboxes=None, points=None, labels=None, **kwargs):
+    def inference(self, source, stream=False, bboxes=None, points=None, labels=None, **kwargs):
         """
         Performs segmentation prediction on the given image or video source.
 
@@ -72,7 +72,7 @@ class SAM(ModelEngine):
         overrides = dict(conf=0.25, task='segment', mode='predict', imgsz=1024)
         kwargs.update(overrides)
         prompts = dict(bboxes=bboxes, points=points, labels=labels)
-        return super().predict(source, stream, prompts=prompts, **kwargs)
+        return super().inference(source, stream, prompts=prompts, **kwargs)
 
     def __call__(self, source=None, stream=False, bboxes=None, points=None, labels=None, **kwargs):
         """
@@ -88,7 +88,7 @@ class SAM(ModelEngine):
         Returns:
             (list): The model predictions.
         """
-        return self.predict(source, stream, bboxes, points, labels, **kwargs)
+        return self.inference(source, stream, bboxes, points, labels, **kwargs)
 
     def info(self, detailed=False, verbose=True):
         """

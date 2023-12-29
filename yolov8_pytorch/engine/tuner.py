@@ -66,14 +66,14 @@ class Tuner:
         ```
     """
 
-    def __init__(self, args=DEFAULT_CFG, _callbacks=None):
+    def __init__(self, config_dict=DEFAULT_CFG, _callbacks=None):
         """
         Initialize the Tuner with configurations.
 
         Args:
-            args (dict, optional): Configuration for hyperparameter evolution.
+            config_dict (dict, optional): Configuration for hyperparameter evolution.
         """
-        self.space = args.pop('space', None) or {  # key: (min, max, gain(optional))
+        self.space = config_dict.pop('space', None) or {  # key: (min, max, gain(optional))
             # 'optimizer': tune.choice(['SGD', 'Adam', 'AdamW', 'NAdam', 'RAdam', 'RMSProp']),
             'lr0': (1e-5, 1e-1),  # initial learning rate (i.e. SGD=1E-2, Adam=1E-3)
             'lrf': (0.0001, 0.1),  # final OneCycleLR learning rate (lr0 * lrf)
@@ -97,7 +97,7 @@ class Tuner:
             'mosaic': (0.0, 1.0),  # image mixup (probability)
             'mixup': (0.0, 1.0),  # image mixup (probability)
             'copy_paste': (0.0, 1.0)}  # segment copy-paste (probability)
-        self.args = get_cfg(overrides=args)
+        self.args = get_cfg(overrides=config_dict)
         self.tune_dir = get_save_dir(self.args, name='tune')
         self.tune_csv = self.tune_dir / 'tune_results.csv'
         self.callbacks = _callbacks or callbacks.get_default_callbacks()
