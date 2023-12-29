@@ -1,112 +1,57 @@
-# Ultralytics YOLO 🚀, AGPL-3.0 license
-"""
-Run prediction on images, videos, directories, globs, YouTube, webcam, streams, etc.
-
-Usage - sources:
-    $ yolo mode=predict model=yolov8n.pt source=0                               # webcam
-                                                img.jpg                         # image
-                                                vid.mp4                         # video
-                                                screen                          # screenshot
-                                                path/                           # directory
-                                                list.txt                        # list of images
-                                                list.streams                    # list of streams
-                                                'path/*.jpg'                    # glob
-                                                'https://youtu.be/LNwODJXcvt4'  # YouTube
-                                                'rtsp://example.com/media.mp4'  # RTSP, RTMP, HTTP, TCP stream
-
-Usage - formats:
-    $ yolo mode=predict model=yolov8n.pt                 # PyTorch
-                              yolov8n.torchscript        # TorchScript
-                              yolov8n.onnx               # ONNX Runtime or OpenCV DNN with dnn=True
-                              yolov8n_openvino_model     # OpenVINO
-                              yolov8n.engine             # TensorRT
-                              yolov8n.mlpackage          # CoreML (macOS-only)
-                              yolov8n_saved_model        # TensorFlow SavedModel
-                              yolov8n.pb                 # TensorFlow GraphDef
-                              yolov8n.tflite             # TensorFlow Lite
-                              yolov8n_edgetpu.tflite     # TensorFlow Edge TPU
-                              yolov8n_paddle_model       # PaddlePaddle
-"""
+# Copyright 2024 Apache License 2.0. All Rights Reserved.
+# Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 import platform
 import threading
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
 import torch
+from omegaconf import DictConfig
 
-from yolov8_pytorch.cfg import get_cfg, get_save_dir
 from yolov8_pytorch.data import load_inference_source
 from yolov8_pytorch.data.augment import LetterBox, classify_transforms
 from yolov8_pytorch.nn.autobackend import AutoBackend
-from yolov8_pytorch.utils import DEFAULT_CFG, LOGGER, MACOS, WINDOWS, callbacks, colorstr, ops
+from yolov8_pytorch.utils import logger, MACOS, WINDOWS, callbacks, colorstr, ops
 from yolov8_pytorch.utils.checks import check_imgsz, check_imshow
 from yolov8_pytorch.utils.files import increment_path
 from yolov8_pytorch.utils.torch_utils import select_device, smart_inference_mode
 
-STREAM_WARNING = """
-WARNING ⚠️ inference results will accumulate in RAM unless `stream=True` is passed, causing potential out-of-memory
-errors for large sources or long-running streams and videos. See https://docs.yolov8_pytorch.com/modes/predict/ for help.
 
-Example:
-    results = model(source=..., stream=True)  # generator of Results objects
-    for r in results:
-        boxes = r.boxes  # Boxes object for bbox outputs
-        masks = r.masks  # Masks object for segment masks outputs
-        probs = r.probs  # Class probabilities for classification outputs
-"""
+class InferencerEngine:
+    def __init__(self, config_dict: DictConfig, _callbacks: Any = None):
+        config_dict = config_dict.INFERENCE
 
-
-class BasePredictor:
-    """
-    BasePredictor.
-
-    A base class for creating predictors.
-
-    Attributes:
-        args (SimpleNamespace): Configuration for the predictor.
-        save_dir (Path): Directory to save results.
-        done_warmup (bool): Whether the predictor has finished setup.
-        model (nn.Module): Model used for prediction.
-        data (dict): Data configuration.
-        device (torch.device): Device used for prediction.
-        dataset (Dataset): Dataset used for prediction.
-        vid_path (str): Path to video file.
-        vid_writer (cv2.VideoWriter): Video writer for saving video output.
-        data_path (str): Path to data.
-    """
-
-    def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks=None):
-        """
-        Initializes the BasePredictor class.
-
-        Args:
-            cfg (str, optional): Path to a configuration file. Defaults to DEFAULT_CFG.
-            overrides (dict, optional): Configuration overrides. Defaults to None.
-        """
-        self.args = get_cfg(cfg, overrides)
-        self.save_dir = get_save_dir(self.args)
-        if self.args.conf is None:
-            self.args.conf = 0.25  # default conf=0.25
-        self.done_warmup = False
-        if self.args.show:
-            self.args.show = check_imshow(warn=True)
+        self.results_dir = config_dict.get("RESULTS_DIR")
+        self.confidence_threshold = config_dict.get("CONFIDENCE_THRESHOLD")
+        self.show = check_imshow(warn=True)
 
         # Usable if setup is done
         self.model = None
-        self.data = self.args.data  # data_dict
-        self.imgsz = None
+        self.image_size = None
         self.device = None
         self.dataset = None
-        self.vid_path, self.vid_writer, self.vid_frame = None, None, None
-        self.plotted_img = None
+        self.video_path, self.video_writer, self.video_frame = None, None, None
+        self.plotted_image = None
         self.data_path = None
+        self.txt_path = None
         self.source_type = None
         self.batch = None
         self.results = None
         self.transforms = None
         self.callbacks = _callbacks or callbacks.get_default_callbacks()
-        self.txt_path = None
         self._lock = threading.Lock()  # for automatic thread-safe inference
         callbacks.add_integration_callbacks(self)
 
@@ -132,7 +77,7 @@ class BasePredictor:
 
     def inference(self, im, *args, **kwargs):
         """Runs inference on a given image using the specified model and arguments."""
-        visualize = increment_path(self.save_dir / Path(self.batch[0][0]).stem,
+        visualize = increment_path(self.results_dir / Path(self.batch[0][0]).stem,
                                    mkdir=True) if self.args.visualize and (not self.source_type.tensor) else False
         return self.model(im, augment=self.args.augment, visualize=visualize, embed=self.args.embed, *args, **kwargs)
 
@@ -162,7 +107,7 @@ class BasePredictor:
         else:
             frame = getattr(self.dataset, 'frame', 0)
         self.data_path = p
-        self.txt_path = str(self.save_dir / 'labels' / p.stem) + ('' if self.dataset.mode == 'image' else f'_{frame}')
+        self.txt_path = str(self.results_dir / 'labels' / p.stem) + ('' if self.dataset.mode == 'image' else f'_{frame}')
         log_string += '%gx%g ' % im.shape[2:]  # print string
         result = results[idx]
         log_string += result.verbose()
@@ -175,12 +120,12 @@ class BasePredictor:
                 'labels': self.args.show_labels}
             if not self.args.retina_masks:
                 plot_args['im_gpu'] = im[idx]
-            self.plotted_img = result.plot(**plot_args)
+            self.plotted_image = result.plot(**plot_args)
         # Write
         if self.args.save_txt:
             result.save_txt(f'{self.txt_path}.txt', save_conf=self.args.save_conf)
         if self.args.save_crop:
-            result.save_crop(save_dir=self.save_dir / 'crops',
+            result.save_crop(results_dir=self.results_dir / 'crops',
                              file_name=self.data_path.stem + ('' if self.dataset.mode == 'image' else f'_{frame}'))
 
         return log_string
@@ -214,22 +159,22 @@ class BasePredictor:
             self.imgsz[0])) if self.args.task == 'classify' else None
         self.dataset = load_inference_source(source=source,
                                              imgsz=self.imgsz,
-                                             vid_stride=self.args.vid_stride,
+                                             video_stride=self.args.video_stride,
                                              buffer=self.args.stream_buffer)
         self.source_type = self.dataset.source_type
         if not getattr(self, 'stream', True) and (self.dataset.mode == 'stream' or  # streams
                                                   len(self.dataset) > 1000 or  # images
-                                                  any(getattr(self.dataset, 'video_flag', [False]))):  # videos
-            LOGGER.warning(STREAM_WARNING)
-        self.vid_path = [None] * self.dataset.bs
-        self.vid_writer = [None] * self.dataset.bs
-        self.vid_frame = [None] * self.dataset.bs
+                                                  any(getattr(self.dataset, 'videoeo_flag', [False]))):  # videoeos
+            logger.warning(".")
+        self.video_path = [None] * self.dataset.bs
+        self.video_writer = [None] * self.dataset.bs
+        self.video_frame = [None] * self.dataset.bs
 
     @smart_inference_mode()
     def stream_inference(self, source=None, model=None, *args, **kwargs):
         """Streams real-time inference on camera feed and saves results to file."""
         if self.args.verbose:
-            LOGGER.info('')
+            logger.info('')
 
         # Setup model
         if not self.model:
@@ -239,14 +184,9 @@ class BasePredictor:
             # Setup source every time predict is called
             self.setup_source(source if source is not None else self.args.source)
 
-            # Check if save_dir/ label file exists
+            # Check if results_dir/ label file exists
             if self.args.save or self.args.save_txt:
-                (self.save_dir / 'labels' if self.args.save_txt else self.save_dir).mkdir(parents=True, exist_ok=True)
-
-            # Warmup model
-            if not self.done_warmup:
-                self.model.warmup(imgsz=(1 if self.model.pt or self.model.triton else self.dataset.bs, 3, *self.imgsz))
-                self.done_warmup = True
+                (self.results_dir / 'labels' if self.args.save_txt else self.results_dir).mkdir(parents=True, exist_ok=True)
 
             self.seen, self.windows, self.batch, profilers = 0, [], None, (ops.Profile(), ops.Profile(), ops.Profile())
             self.run_callbacks('on_predict_start')
@@ -254,7 +194,7 @@ class BasePredictor:
             for batch in self.dataset:
                 self.run_callbacks('on_predict_batch_start')
                 self.batch = batch
-                path, im0s, vid_cap, s = batch
+                path, im0s, video_cap, s = batch
 
                 # Preprocess
                 with profilers[0]:
@@ -286,32 +226,32 @@ class BasePredictor:
                     if self.args.verbose or self.args.save or self.args.save_txt or self.args.show:
                         s += self.write_results(i, self.results, (p, im, im0))
                     if self.args.save or self.args.save_txt:
-                        self.results[i].save_dir = self.save_dir.__str__()
-                    if self.args.show and self.plotted_img is not None:
+                        self.results[i].results_dir = self.results_dir.__str__()
+                    if self.args.show and self.plotted_image is not None:
                         self.show(p)
-                    if self.args.save and self.plotted_img is not None:
-                        self.save_preds(vid_cap, i, str(self.save_dir / p.name))
+                    if self.args.save and self.plotted_image is not None:
+                        self.save_preds(video_cap, i, str(self.results_dir / p.name))
 
                 self.run_callbacks('on_predict_batch_end')
                 yield from self.results
 
                 # Print time (inference-only)
                 if self.args.verbose:
-                    LOGGER.info(f'{s}{profilers[1].dt * 1E3:.1f}ms')
+                    logger.info(f'{s}{profilers[1].dt * 1E3:.1f}ms')
 
         # Release assets
-        if isinstance(self.vid_writer[-1], cv2.VideoWriter):
-            self.vid_writer[-1].release()  # release final video writer
+        if isinstance(self.video_writer[-1], cv2.VideoWriter):
+            self.video_writer[-1].release()  # release final videoeo writer
 
         # Print results
         if self.args.verbose and self.seen:
             t = tuple(x.t / self.seen * 1E3 for x in profilers)  # speeds per image
-            LOGGER.info(f'Speed: %.1fms preprocess, %.1fms inference, %.1fms postprocess per image at shape '
+            logger.info(f'Speed: %.1fms preprocess, %.1fms inference, %.1fms postprocess per image at shape '
                         f'{(1, 3, *im.shape[2:])}' % t)
         if self.args.save or self.args.save_txt or self.args.save_crop:
-            nl = len(list(self.save_dir.glob('labels/*.txt')))  # number of labels
-            s = f"\n{nl} label{'s' * (nl > 1)} saved to {self.save_dir / 'labels'}" if self.args.save_txt else ''
-            LOGGER.info(f"Results saved to {colorstr('bold', self.save_dir)}{s}")
+            nl = len(list(self.results_dir.glob('labels/*.txt')))  # number of labels
+            s = f"\n{nl} label{'s' * (nl > 1)} saved to {self.results_dir / 'labels'}" if self.args.save_txt else ''
+            logger.info(f"Results saved to {colorstr('bold', self.results_dir)}{s}")
 
         self.run_callbacks('on_predict_end')
 
@@ -331,7 +271,7 @@ class BasePredictor:
 
     def show(self, p):
         """Display an image in a window using OpenCV imshow()."""
-        im0 = self.plotted_img
+        im0 = self.plotted_image
         if platform.system() == 'Linux' and p not in self.windows:
             self.windows.append(p)
             cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # allow window resize (Linux)
@@ -339,37 +279,37 @@ class BasePredictor:
         cv2.imshow(str(p), im0)
         cv2.waitKey(500 if self.batch[3].startswith('image') else 1)  # 1 millisecond
 
-    def save_preds(self, vid_cap, idx, save_path):
-        """Save video predictions as mp4 at specified path."""
-        im0 = self.plotted_img
+    def save_preds(self, video_cap, idx, save_path):
+        """Save videoeo predictions as mp4 at specified path."""
+        im0 = self.plotted_image
         # Save imgs
         if self.dataset.mode == 'image':
             cv2.imwrite(save_path, im0)
-        else:  # 'video' or 'stream'
+        else:  # 'videoeo' or 'stream'
             frames_path = f'{save_path.split(".", 1)[0]}_frames/'
-            if self.vid_path[idx] != save_path:  # new video
-                self.vid_path[idx] = save_path
+            if self.video_path[idx] != save_path:  # new videoeo
+                self.video_path[idx] = save_path
                 if self.args.save_frames:
                     Path(frames_path).mkdir(parents=True, exist_ok=True)
-                    self.vid_frame[idx] = 0
-                if isinstance(self.vid_writer[idx], cv2.VideoWriter):
-                    self.vid_writer[idx].release()  # release previous video writer
-                if vid_cap:  # video
-                    fps = int(vid_cap.get(cv2.CAP_PROP_FPS))  # integer required, floats produce error in MP4 codec
-                    w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    self.video_frame[idx] = 0
+                if isinstance(self.video_writer[idx], cv2.VideoWriter):
+                    self.video_writer[idx].release()  # release previous videoeo writer
+                if video_cap:  # videoeo
+                    fps = int(video_cap.get(cv2.CAP_PROP_FPS))  # integer required, floats produce error in MP4 codec
+                    w = int(video_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    h = int(video_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 else:  # stream
                     fps, w, h = 30, im0.shape[1], im0.shape[0]
                 suffix, fourcc = ('.mp4', 'avc1') if MACOS else ('.avi', 'WMV2') if WINDOWS else ('.avi', 'MJPG')
-                self.vid_writer[idx] = cv2.VideoWriter(str(Path(save_path).with_suffix(suffix)),
+                self.video_writer[idx] = cv2.VideoWriter(str(Path(save_path).with_suffix(suffix)),
                                                        cv2.VideoWriter_fourcc(*fourcc), fps, (w, h))
-            # Write video
-            self.vid_writer[idx].write(im0)
+            # Write videoeo
+            self.video_writer[idx].write(im0)
 
             # Write frame
             if self.args.save_frames:
-                cv2.imwrite(f'{frames_path}{self.vid_frame[idx]}.jpg', im0)
-                self.vid_frame[idx] += 1
+                cv2.imwrite(f'{frames_path}{self.video_frame[idx]}.jpg', im0)
+                self.video_frame[idx] += 1
 
     def run_callbacks(self, event: str):
         """Runs all registered callbacks for a specific event."""

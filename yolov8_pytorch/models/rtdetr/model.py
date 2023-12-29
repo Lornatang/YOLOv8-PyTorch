@@ -9,7 +9,7 @@ For more information on RT-DETR, visit: https://arxiv.org/pdf/2304.08069.pdf
 
 from yolov8_pytorch.engine.model import ModelEngine
 from yolov8_pytorch.nn.tasks import RTDETRDetectionModel
-from .predict import RTDETRPredictor
+from .predict import RTDETRInferencer
 from .train import RTDETRTrainer
 from .val import RTDETRValidator
 
@@ -47,7 +47,7 @@ class RTDETR(ModelEngine):
         """
         return {
             'detect': {
-                'predictor': RTDETRPredictor,
+                'predictor': RTDETRInferencer,
                 'validator': RTDETRValidator,
                 'trainer': RTDETRTrainer,
                 'model': RTDETRDetectionModel}}

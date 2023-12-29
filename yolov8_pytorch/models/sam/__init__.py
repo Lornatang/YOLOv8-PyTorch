@@ -1,6 +1,6 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
 from .model import SAM
-from .predict import Predictor
+from .predict import Inferencer
 
-__all__ = 'SAM', 'Predictor'  # tuple or list
+__all__ = 'SAM', 'Inferencer'  # tuple or list

@@ -19,7 +19,7 @@ from pathlib import Path
 from yolov8_pytorch.engine.model import ModelEngine
 from yolov8_pytorch.utils.torch_utils import model_info
 from .build import build_sam
-from .predict import Predictor
+from .predict import Inferencer
 
 
 class SAM(ModelEngine):
@@ -111,4 +111,4 @@ class SAM(ModelEngine):
         Returns:
             (dict): A dictionary mapping the 'segment' task to its corresponding 'Predictor'.
         """
-        return {'segment': {'predictor': Predictor}}
+        return {'segment': {'predictor': Inferencer}}

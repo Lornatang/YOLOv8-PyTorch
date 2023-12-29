@@ -1,5 +1,16 @@
-# Ultralytics YOLO 🚀, AGPL-3.0 license
-
+# Copyright 2024 Apache License 2.0. All Rights Reserved.
+# Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 import logging
 from pathlib import Path
 from typing import Any
@@ -7,11 +18,12 @@ from typing import Any
 from omegaconf import DictConfig
 
 from yolov8_pytorch.nn.tasks import nn
-from yolov8_pytorch.utils import LOGGER, RANK, callbacks
+from yolov8_pytorch.utils import RANK, callbacks
 from yolov8_pytorch.utils.benchmarks import benchmark
 from yolov8_pytorch.utils.common import load_weights
 from yolov8_pytorch.utils.tuner import run_ray_tune
 from .tuner import Tuner
+from .exporter import Exporter
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +129,7 @@ class ModelEngine(nn.Module):
             Any: The prediction results.
         """
         if source is None:
-            LOGGER.error(f"'source' is missing.")
+            logger.error(f"'source' is missing.")
 
         self.inferencer = (inferencer or self._load_engine("inferencer"))(config_dict=self.config_dict, _callbacks=self.callbacks)
 
@@ -214,7 +226,6 @@ class ModelEngine(nn.Module):
         """
         # Add mode to kwargs
         self.config_dict["MODE"] = "BENCHMARK"
-
         return benchmark(
             model=self.model,
             data=self.config_dict.BENCHMARK.get("DATASETS"),
@@ -231,11 +242,8 @@ class ModelEngine(nn.Module):
         Args:
             **kwargs : Any other args accepted by the Exporter. To see all args check "configuration" section in docs.
         """
-        from .exporter import Exporter
-
-        custom = {"imgsz": self.model.args["imgsz"], "batch": 1, "data": None, "verbose": False}  # method defaults
-        args = {**self.overrides, **custom, **kwargs, "MODE": "export"}  # highest priority args on the right
-        return Exporter(overrides=args, _callbacks=self.callbacks)(model=self.model)
+        self.config_dict["MODE"] = "EXPORT"
+        return Exporter(config_dict=self.config_dict, _callbacks=self.callbacks)(model=self.model)
 
     def _load_engine(self, key):
         return self.task_map[self.task][key]
@@ -244,13 +252,13 @@ class ModelEngine(nn.Module):
         """Apply to(), cpu(), cuda(), half(), float() to model tensors that are not parameters or registered buffers."""
         self = super()._apply(func)  # noqa
         self.inferencer = None  # reset inferencer as device may have changed
-        self.config_dict["device"] = self.device  # was str(self.device) i.e. device(type="cuda", index=0) -> "cuda:0"
+        self.config_dict["DEVICE"] = self.device  # was str(self.device) i.e. device(type="cuda", index=0) -> "cuda:0"
         return self
 
     @property
     def names(self):
         """Returns class names of the loaded model."""
-        return self.config_dict.DATASETS.get("NAMES")
+        return self.model.names if hasattr(self.model, "names") else None
 
     @property
     def device(self):

@@ -2,12 +2,12 @@
 
 import torch
 
-from yolov8_pytorch.engine.predictor import BasePredictor
+from yolov8_pytorch.engine.inferencer import InferencerEngine
 from yolov8_pytorch.engine.results import Results
 from yolov8_pytorch.utils import ops
 
 
-class NASPredictor(BasePredictor):
+class NASInferencer(InferencerEngine):
     """
     Ultralytics YOLO NAS Predictor for object detection.
 

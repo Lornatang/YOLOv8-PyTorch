@@ -18,7 +18,7 @@ import torch
 
 from yolov8_pytorch.engine.model import ModelEngine
 from yolov8_pytorch.utils.torch_utils import model_info, smart_inference_mode
-from .predict import NASPredictor
+from .predict import NASInferencer
 from .val import NASValidator
 
 
@@ -79,4 +79,4 @@ class YOLONAS(ModelEngine):
     @property
     def task_map(self):
         """Returns a dictionary mapping tasks to respective predictor and validator classes."""
-        return {'detect': {'predictor': NASPredictor, 'validator': NASValidator}}
+        return {'detect': {'predictor': NASInferencer, 'validator': NASValidator}}

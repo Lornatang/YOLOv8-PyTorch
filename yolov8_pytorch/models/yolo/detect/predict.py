@@ -1,11 +1,11 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
-from yolov8_pytorch.engine.predictor import BasePredictor
+from yolov8_pytorch.engine.inferencer import InferencerEngine
 from yolov8_pytorch.engine.results import Results
 from yolov8_pytorch.utils import ops
 
 
-class DetectionPredictor(BasePredictor):
+class DetectionInferencer(InferencerEngine):
     """
     A class extending the BasePredictor class for prediction based on a detection model.
 

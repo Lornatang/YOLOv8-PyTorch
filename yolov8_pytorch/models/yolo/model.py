@@ -16,7 +16,7 @@ class YOLOEngine(ModelEngine):
                 "model": DetectionModel,
                 "trainer": yolo.detect.DetectionTrainer,
                 "validator": yolo.detect.DetectionValidator,
-                "predictor": yolo.detect.DetectionPredictor, },
+                "predictor": yolo.detect.DetectionInferencer, },
             "segment": {
                 "model": SegmentationModel,
                 "trainer": yolo.segment.SegmentationTrainer,
