@@ -1,264 +1,377 @@
-# Copyright 2024 Apache License 2.0. All Rights Reserved.
-# Licensed under the Apache License, Version 2.0 (the "License");
-#   you may not use this file except in compliance with the License.
-#   You may obtain a copy of the License at
-#
-#       http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
-import logging
+# Ultralytics YOLO 🚀, AGPL-3.0 license
+
+import inspect
+import sys
 from pathlib import Path
-from typing import Any
+from typing import Union
 
-from omegaconf import DictConfig
-from torch import nn
-
-from yolov8_pytorch.nn.tasks import load_weights
-from yolov8_pytorch.utils import RANK, callbacks
-from yolov8_pytorch.utils.benchmarks import benchmark
-from yolov8_pytorch.utils.tuner import run_ray_tune
-from .exporter import Exporter
-from .tuner import Tuner
-
-logger = logging.getLogger(__name__)
+from yolov8_pytorch.cfg import TASK2DATA, get_cfg, get_save_dir
+from yolov8_pytorch.hub.utils import HUB_WEB_ROOT
+from yolov8_pytorch.nn.tasks import attempt_load_one_weight, guess_model_task, nn, yaml_model_load
+from yolov8_pytorch.utils import ASSETS, DEFAULT_CFG_DICT, LOGGER, RANK, callbacks, checks, emojis, yaml_load
 
 
-class ModelEngine(nn.Module):
-    """The base class of all model engines, including training, verification, reasoning, fine-tuning, and deriving methods
+class Model(nn.Module):
+    """
+    A base class to unify APIs for all models.
+
+    Args:
+        model (str, Path): Path to the model file to load or create.
+        task (Any, optional): Task type for the YOLO model. Defaults to None.
 
     Attributes:
-        model: The model to be used.
-        inferencer: The inferencer to be used.
-        trainer: The trainer to be used.
-        checkpoint: The checkpoint to be used.
-        checkpoint_path: The path of checkpoint to be used.
-        metrics: The metrics to be used.
-        callbacks: The callbacks to be used.
+        predictor (Any): The predictor object.
+        model (Any): The model object.
+        trainer (Any): The trainer object.
+        task (str): The type of model task.
+        ckpt (Any): The checkpoint object if the model loaded from *.pt file.
+        cfg (str): The model configuration if loaded from *.yaml file.
+        ckpt_path (str): The checkpoint file path.
+        overrides (dict): Overrides for the trainer object.
+        metrics (Any): The data for metrics.
+
+    Methods:
+        __call__(source=None, stream=False, **kwargs):
+            Alias for the predict method.
+        _new(cfg:str, verbose:bool=True) -> None:
+            Initializes a new model and infers the task type from the model definitions.
+        _load(weights:str, task:str='') -> None:
+            Initializes a new model and infers the task type from the model head.
+        _check_is_pytorch_model() -> None:
+            Raises TypeError if the model is not a PyTorch model.
+        reset() -> None:
+            Resets the model modules.
+        info(verbose:bool=False) -> None:
+            Logs the model info.
+        fuse() -> None:
+            Fuses the model for faster inference.
+        predict(source=None, stream=False, **kwargs) -> List[yolov8_pytorch.engine.results.Results]:
+            Performs prediction using the YOLO model.
+
+    Returns:
+        list(yolov8_pytorch.engine.results.Results): The prediction results.
     """
 
-    def __init__(self, config_dict: DictConfig, task: str = None, verbose: bool = False) -> None:
-        r"""Initialize the model engine.
+    def __init__(self, model: Union[str, Path] = 'yolov8n.pt', task=None) -> None:
+        """
+        Initializes the YOLO model.
 
         Args:
-            config_dict (DictConfig): The config_dict to be used.
-            task (str, optional): The task to be used. Defaults to None.
-            verbose (bool, optional): Whether to print the log information. Defaults to False.
+            model (Union[str, Path], optional): Path or name of the model to load or create. Defaults to 'yolov8n.pt'.
+            task (Any, optional): Task type for the YOLO model. Defaults to None.
         """
         super().__init__()
-        self.config = config_dict
-        self.verbose = verbose
-
-        # Map head to model, trainer, validator, and predictor classes.
         self.callbacks = callbacks.get_default_callbacks()
+        self.predictor = None  # reuse predictor
+        self.model = None  # model object
+        self.trainer = None  # trainer object
+        self.ckpt = None  # if loaded from *.pt
+        self.cfg = None  # if loaded from *.yaml
+        self.ckpt_path = None
+        self.overrides = {}  # overrides for trainer object
+        self.metrics = None  # validation/training metrics
+        self.session = None  # HUB session
+        self.task = task  # task type
+        model = str(model).strip()  # strip spaces
 
-        self.model = None
-        self.inferencer = None
-        self.trainer = None
-        self.checkpoint = None
-        self.checkpoint_path = None
-        self.metrics = None
+        # Check if Ultralytics HUB model from https://hub.ultralytics.com
+        if self.is_hub_model(model):
+            from yolov8_pytorch.hub.session import HUBTrainingSession
+            self.session = HUBTrainingSession(model)
+            model = self.session.model_file
 
-        # create model engine
-        self.model = self._load_engine("model")(config_dict.MODEL, verbose=verbose and RANK == -1)
-        self.model.config_dict = config_dict
-        self.model.task = task
+        # Check if Triton Server model
+        elif self.is_triton_model(model):
+            self.model = model
+            self.task = task
+            return
 
-    def __call__(self, source: Any = None, stream: bool = False, **kwargs) -> Any:
-        r"""As same as forward()
+        # Load or create new YOLO model
+        model = checks.check_model_file_from_stem(model)  # add suffix, i.e. yolov8n -> yolov8n.pt
+        if Path(model).suffix in ('.yaml', '.yml'):
+            self._new(model, task)
+        else:
+            self._load(model, task)
+
+    def __call__(self, source=None, stream=False, **kwargs):
+        """Calls the predict() method with given arguments to perform object detection."""
+        return self.predict(source, stream, **kwargs)
+
+    @staticmethod
+    def is_triton_model(model):
+        """Is model a Triton Server URL string, i.e. <scheme>://<netloc>/<endpoint>/<task_name>"""
+        from urllib.parse import urlsplit
+        url = urlsplit(model)
+        return url.netloc and url.path and url.scheme in {'http', 'grpc'}
+
+    @staticmethod
+    def is_hub_model(model):
+        """Check if the provided model is a HUB model."""
+        return any((
+            model.startswith(f'{HUB_WEB_ROOT}/models/'),  # i.e. https://hub.ultralytics.com/models/MODEL_ID
+            [len(x) for x in model.split('_')] == [42, 20],  # APIKEY_MODELID
+            len(model) == 20 and not Path(model).exists() and all(x not in model for x in './\\')))  # MODELID
+
+    def _new(self, cfg: str, task=None, model=None, verbose=True):
+        """
+        Initializes a new model and infers the task type from the model definitions.
 
         Args:
-            source (Any, optional): The source of the image to make predictions on. Defaults to None.
-            stream (bool, optional): Whether to stream the predictions or not. Defaults to False.
-
-        Returns:
-            Any: The prediction results.
+            cfg (str): model configuration file
+            task (str | None): model task
+            model (BaseModel): Customized model.
+            verbose (bool): display model info on load
         """
-        return self.inference(source, stream, **kwargs)
+        cfg_dict = yaml_model_load(cfg)
+        self.cfg = cfg
+        self.task = task or guess_model_task(cfg_dict)
+        self.model = (model or self._smart_load('model'))(cfg_dict, verbose=verbose and RANK == -1)  # build model
+        self.overrides['model'] = self.cfg
+        self.overrides['task'] = self.task
 
-    def info(self, verbose: bool = True) -> None:
-        r"""Print model information.
+        # Below added to allow export from YAMLs
+        self.model.args = {**DEFAULT_CFG_DICT, **self.overrides}  # combine default and model args (prefer model args)
+        self.model.task = self.task
+
+    def _load(self, weights: str, task=None):
+        """
+        Initializes a new model and infers the task type from the model head.
 
         Args:
-            verbose (bool, optional): Whether to print the log information. Defaults to True.
+            weights (str): model checkpoint to be loaded
+            task (str | None): model task
         """
-        return self.model.info(verbose)
+        suffix = Path(weights).suffix
+        if suffix == '.pt':
+            self.model, self.ckpt = attempt_load_one_weight(weights)
+            self.task = self.model.args['task']
+            self.overrides = self.model.args = self._reset_ckpt_args(self.model.args)
+            self.ckpt_path = self.model.pt_path
+        else:
+            weights = checks.check_file(weights)
+            self.model, self.ckpt = weights, None
+            self.task = task or guess_model_task(weights)
+            self.ckpt_path = weights
+        self.overrides['model'] = weights
+        self.overrides['task'] = self.task
 
-    def load(self, checkpoint_path: str | Path) -> None:
-        r"""Load the model.
+    def _check_is_pytorch_model(self):
+        """Raises TypeError is model is not a PyTorch model."""
+        pt_str = isinstance(self.model, (str, Path)) and Path(self.model).suffix == '.pt'
+        pt_module = isinstance(self.model, nn.Module)
+        if not (pt_module or pt_str):
+            raise TypeError(
+                f"model='{self.model}' should be a *.pt PyTorch model to run this method, but is a different format. "
+                f"PyTorch models can train, val, predict and export, i.e. 'model.train(data=...)', but exported "
+                f"formats like ONNX, TensorRT etc. only support 'predict' and 'val' modes, "
+                f"i.e. 'yolo predict model=yolov8n.onnx'.\nTo run CUDA or MPS inference please pass the device "
+                f"argument directly in your inference command, i.e. 'model.predict(source=..., device=0)'")
+
+    def reset_weights(self):
+        """Resets the model modules parameters to randomly initialized values, losing all training information."""
+        self._check_is_pytorch_model()
+        for m in self.model.modules():
+            if hasattr(m, 'reset_parameters'):
+                m.reset_parameters()
+        for p in self.model.parameters():
+            p.requires_grad = True
+        return self
+
+    def load(self, weights='yolov8n.pt'):
+        """Transfers parameters with matching names and shapes from 'weights' to model."""
+        self._check_is_pytorch_model()
+        if isinstance(weights, (str, Path)):
+            weights, self.ckpt = attempt_load_one_weight(weights)
+        self.model.load(weights)
+        return self
+
+    def info(self, detailed=False, verbose=True):
+        """
+        Logs model info.
 
         Args:
-            checkpoint_path (str | Path): The path of weights to be loaded.
+            detailed (bool): Show detailed information about model.
+            verbose (bool): Controls verbosity.
         """
-        self.model = load_weights(checkpoint_path)
-        self.checkpoint = True
-        self.checkpoint_path = checkpoint_path
+        self._check_is_pytorch_model()
+        return self.model.info(detailed=detailed, verbose=verbose)
 
-    def fuse(self) -> None:
-        r"""Fuse Conv2d + BatchNorm2d layers throughout model for inference."""
+    def fuse(self):
+        """Fuse PyTorch Conv2d and BatchNorm2d layers."""
+        self._check_is_pytorch_model()
         self.model.fuse()
 
-    def embed(self, source: Any = None, stream: bool = False, **kwargs) -> Any:
-        r"""Perform prediction using the YOLO model.
-
-        Args:
-            source (Any, optional): The source of the image to make predictions on. Defaults to None.
-            stream (bool, optional): Whether to stream the predictions or not. Defaults to False.
-
-        Returns:
-            Any: The prediction results.
+    def embed(self, source=None, stream=False, **kwargs):
         """
-        if not kwargs.get("embed"):
-            # default to last layer
-            kwargs["embed"] = [len(self.model.model) - 2]
-        return self.inference(source, stream, **kwargs)
-
-    def inference(self, source: Any = None, stream: bool = False, inferencer: Any = None, **kwargs) -> Any:
-        r"""Perform prediction using the YOLO model.
+        Calls the predict() method and returns image embeddings.
 
         Args:
-            source (Any, optional): The source of the image to make predictions on. Defaults to None.
-            stream (bool, optional): Whether to stream the predictions or not. Defaults to False.
-            inferencer (Any, optional): The inferencer to be used. Defaults to None.
+            source (str | int | PIL | np.ndarray): The source of the image to make predictions on.
+                Accepts all source types accepted by the YOLO model.
+            stream (bool): Whether to stream the predictions or not. Defaults to False.
+            **kwargs : Additional keyword arguments passed to the predictor.
+                Check the 'configuration' section in the documentation for all available options.
 
         Returns:
-            Any: The prediction results.
+            (List[torch.Tensor]): A list of image embeddings.
+        """
+        if not kwargs.get('embed'):
+            kwargs['embed'] = [len(self.model.model) - 2]  # embed second-to-last layer if no indices passed
+        return self.predict(source, stream, **kwargs)
+
+    def predict(self, source=None, stream=False, predictor=None, **kwargs):
+        """
+        Perform prediction using the YOLO model.
+
+        Args:
+            source (str | int | PIL | np.ndarray): The source of the image to make predictions on.
+                Accepts all source types accepted by the YOLO model.
+            stream (bool): Whether to stream the predictions or not. Defaults to False.
+            predictor (BasePredictor): Customized predictor.
+            **kwargs : Additional keyword arguments passed to the predictor.
+                Check the 'configuration' section in the documentation for all available options.
+
+        Returns:
+            (List[yolov8_pytorch.engine.results.Results]): The prediction results.
         """
         if source is None:
-            logger.error(f"'source' is missing.")
+            source = ASSETS
+            LOGGER.warning(f"WARNING ⚠️ 'source' is missing. Using 'source={source}'.")
 
-        self.inferencer = (inferencer or self._load_engine("inferencer"))(config_dict=self.config_dict, _callbacks=self.callbacks)
+        is_cli = (sys.argv[0].endswith('yolo') or sys.argv[0].endswith('yolov8_pytorch')) and any(
+            x in sys.argv for x in ('predict', 'track', 'mode=predict', 'mode=track'))
 
-        # Add mode to kwargs
-        self.config_dict["MODE"] = "INFERENCE"
+        custom = {'conf': 0.25, 'save': is_cli}  # method defaults
+        args = {**self.overrides, **custom, **kwargs, 'mode': 'predict'}  # highest priority args on the right
+        prompts = args.pop('prompts', None)  # for SAM-type models
 
-        self.inferencer.config_dict = self.config_dict.INFERENCE
+        if not self.predictor:
+            self.predictor = (predictor or self._smart_load('predictor'))(overrides=args, _callbacks=self.callbacks)
+            self.predictor.setup_model(model=self.model, verbose=is_cli)
+        else:  # only update args if predictor is already setup
+            self.predictor.args = get_cfg(self.predictor.args, args)
+            if 'project' in args or 'name' in args:
+                self.predictor.save_dir = get_save_dir(self.predictor.args)
+        if prompts and hasattr(self.predictor, 'set_prompts'):  # for SAM-type models
+            self.predictor.set_prompts(prompts)
+        return self.predictor.predict_cli(source=source) if is_cli else self.predictor(source=source, stream=stream)
 
-        # for SAM-type model
-        prompts = self.inferencer.config_dict.get("PROMPTS")
-        if prompts:
-            self.inferencer.set_prompts(prompts)
-        return self.inferencer(source=source, stream=stream)
-
-    def train(self, trainer: Any = None, **kwargs) -> Any:
-        r"""Trains the model on a given dataset.
-
-        Args:
-            trainer (BaseTrainer, optional): Customized trainer.
-            **kwargs (Any): Any number of arguments representing the training configuration.
-
-        Returns:
-            Any: The metrics of the trained model.
+    def val(self, validator=None, **kwargs):
         """
-        self.trainer = (trainer or self._load_engine("trainer"))(config_dict=self.config_dict, _callbacks=self.callbacks)
-
-        # Add mode to kwargs
-        self.config_dict["MODE"] = "TRAIN"
-
-        self.trainer.config_dict = self.config_dict.TRAIN
-
-        if not self.config_dict.get("CHECKPOINT_PATH"):  # manually set model only if not resuming
-            self.trainer.model = self.trainer.get_model(config_dict=self.config_dict, weights=self.model if self.checkpoint else None)
-            self.model = self.trainer.model
-
-        self.trainer.train()
-
-        # Update model and cfg after training
-        if RANK in (-1, 0):
-            checkpoint_path = self.trainer.best_checkpoint_path if self.trainer.best_checkpoint_path.exists() else self.trainer.last_checkpoint_path
-            self.model = load_weights(checkpoint_path)
-            self.metrics = getattr(self.trainer.validator, "metrics", None)
-        return self.metrics
-
-    def validate(self, validater: Any = None, **kwargs) -> Any:
-        r"""Validate a model on a given dataset.
+        Validate a model on a given dataset.
 
         Args:
-            validater (BaseValidator): Customized validator.
-            **kwargs : Any other args accepted by the validators. To see all args check "configuration" section in docs
-
-        Returns:
-            Any: The metrics of the trained model.
+            validator (BaseValidator): Customized validator.
+            **kwargs : Any other args accepted by the validators. To see all args check 'configuration' section in docs
         """
-        validater = (validater or self._load_engine("validator"))(config_dict=self.config_dict, _callbacks=self.callbacks)
+        custom = {'rect': True}  # method defaults
+        args = {**self.overrides, **custom, **kwargs, 'mode': 'val'}  # highest priority args on the right
 
-        # Add mode to kwargs
-        self.config_dict["MODE"] = "VALIDATE"
+        validator = (validator or self._smart_load('validator'))(args=args, _callbacks=self.callbacks)
+        validator(model=self.model)
+        self.metrics = validator.metrics
+        return validator.metrics
 
-        validater.config_dict = self.config_dict.VALIDATE
-
-        validater(model=self.model)
-        self.metrics = validater.metrics
-        return validater.metrics
-
-    def tune(self, use_ray: bool = False, iterations: int = 10, *args, **kwargs) -> dict:
-        r"""Runs hyperparameter tuning, optionally using Ray Tune. See yolov8_pytorch.utils.tuner.run_ray_tune for Args.
-
-        Args:
-            use_ray (bool): Whether to use Ray Tune for hyperparameter tuning. Defaults to False.
-            iterations (int): Number of iterations to run. Defaults to 10.
-            *args: Any other args accepted by the tuner. To see all args check "configuration" section in docs
-            **kwargs: Any other args accepted by the tuner. To see all args check "configuration" section in docs
-
-        Returns:
-            (dict): A dictionary containing the results of the hyperparameter search.
+    def benchmark(self, **kwargs):
         """
-        if use_ray:
-            return run_ray_tune(self, max_samples=iterations, *args, **kwargs)
-        else:
-            # Add mode to kwargs
-            self.config_dict["MODE"] = "TRAIN"
-            return Tuner(config_dict=self.config_dict, _callbacks=self.callbacks)(model=self.model, iterations=iterations)
-
-    def benchmark(self, verbose: bool = False, **kwargs):
-        r"""Benchmark a model on all export formats.
+        Benchmark a model on all export formats.
 
         Args:
-            verbose (bool): Print results to screen. Defaults to False.
-            **kwargs : Any other args accepted by the validators. To see all args check "configuration" section in docs
-
-        Args:
-            **kwargs : Any other args accepted by the validators. To see all args check "configuration" section in docs
+            **kwargs : Any other args accepted by the validators. To see all args check 'configuration' section in docs
         """
-        # Add mode to kwargs
-        self.config_dict["MODE"] = "BENCHMARK"
+        self._check_is_pytorch_model()
+        from yolov8_pytorch.utils.benchmarks import benchmark
+
+        custom = {'verbose': False}  # method defaults
+        args = {**DEFAULT_CFG_DICT, **self.model.args, **custom, **kwargs, 'mode': 'benchmark'}
         return benchmark(
-            model=self.model,
-            data=self.config_dict.BENCHMARK.get("DATASETS"),
-            imgsz=self.config_dict.BENCHMARK.get("IMAGE_SIZE"),
-            half=self.config_dict.BENCHMARK.get("HALF"),
-            int8=self.config_dict.BENCHMARK.get("INT8"),
-            device=self.config_dict.get("DEVICE"),
-            verbose=verbose)
+            model=self,
+            data=kwargs.get('data'),  # if no 'data' argument passed set data=None for default datasets
+            imgsz=args['imgsz'],
+            half=args['half'],
+            int8=args['int8'],
+            device=args['device'],
+            verbose=kwargs.get('verbose'))
 
     def export(self, **kwargs):
         """
         Export model.
 
         Args:
-            **kwargs : Any other args accepted by the Exporter. To see all args check "configuration" section in docs.
+            **kwargs : Any other args accepted by the Exporter. To see all args check 'configuration' section in docs.
         """
-        self.config_dict["MODE"] = "EXPORT"
-        return Exporter(config_dict=self.config_dict, _callbacks=self.callbacks)(model=self.model)
+        self._check_is_pytorch_model()
+        from .exporter import Exporter
 
-    def _load_engine(self, key):
-        return self.task_map[self.task][key]
+        custom = {'imgsz': self.model.args['imgsz'], 'batch': 1, 'data': None, 'verbose': False}  # method defaults
+        args = {**self.overrides, **custom, **kwargs, 'mode': 'export'}  # highest priority args on the right
+        return Exporter(overrides=args, _callbacks=self.callbacks)(model=self.model)
 
-    def _apply(self, func):
+    def train(self, trainer=None, **kwargs):
+        """
+        Trains the model on a given dataset.
+
+        Args:
+            trainer (BaseTrainer, optional): Customized trainer.
+            **kwargs (Any): Any number of arguments representing the training configuration.
+        """
+        self._check_is_pytorch_model()
+        if self.session:  # Ultralytics HUB session
+            if any(kwargs):
+                LOGGER.warning('WARNING ⚠️ using HUB training arguments, ignoring local training arguments.')
+            kwargs = self.session.train_args
+        checks.check_pip_update_available()
+
+        overrides = yaml_load(checks.check_yaml(kwargs['cfg'])) if kwargs.get('cfg') else self.overrides
+        custom = {'data': DEFAULT_CFG_DICT['data'] or TASK2DATA[self.task]}  # method defaults
+        args = {**overrides, **custom, **kwargs, 'mode': 'train'}  # highest priority args on the right
+        if args.get('resume'):
+            args['resume'] = self.ckpt_path
+
+        self.trainer = (trainer or self._smart_load('trainer'))(overrides=args, _callbacks=self.callbacks)
+        if not args.get('resume'):  # manually set model only if not resuming
+            self.trainer.model = self.trainer.get_model(weights=self.model if self.ckpt else None, cfg=self.model.yaml)
+            self.model = self.trainer.model
+        self.trainer.hub_session = self.session  # attach optional HUB session
+        self.trainer.train()
+        # Update model and cfg after training
+        if RANK in (-1, 0):
+            ckpt = self.trainer.best if self.trainer.best.exists() else self.trainer.last
+            self.model, _ = attempt_load_one_weight(ckpt)
+            self.overrides = self.model.args
+            self.metrics = getattr(self.trainer.validator, 'metrics', None)  # TODO: no metrics returned by DDP
+        return self.metrics
+
+    def tune(self, use_ray=False, iterations=10, *args, **kwargs):
+        """
+        Runs hyperparameter tuning, optionally using Ray Tune. See yolov8_pytorch.utils.tuner.run_ray_tune for Args.
+
+        Returns:
+            (dict): A dictionary containing the results of the hyperparameter search.
+        """
+        self._check_is_pytorch_model()
+        if use_ray:
+            from yolov8_pytorch.utils.tuner import run_ray_tune
+            return run_ray_tune(self, max_samples=iterations, *args, **kwargs)
+        else:
+            from .tuner import Tuner
+
+            custom = {}  # method defaults
+            args = {**self.overrides, **custom, **kwargs, 'mode': 'train'}  # highest priority args on the right
+            return Tuner(args=args, _callbacks=self.callbacks)(model=self, iterations=iterations)
+
+    def _apply(self, fn):
         """Apply to(), cpu(), cuda(), half(), float() to model tensors that are not parameters or registered buffers."""
-        self = super()._apply(func)  # noqa
-        self.inferencer = None  # reset inferencer as device may have changed
-        self.config_dict["DEVICE"] = self.device  # was str(self.device) i.e. device(type="cuda", index=0) -> "cuda:0"
+        self._check_is_pytorch_model()
+        self = super()._apply(fn)  # noqa
+        self.predictor = None  # reset predictor as device may have changed
+        self.overrides['device'] = self.device  # was str(self.device) i.e. device(type='cuda', index=0) -> 'cuda:0'
         return self
 
     @property
     def names(self):
         """Returns class names of the loaded model."""
-        return self.model.names if hasattr(self.model, "names") else None
+        return self.model.names if hasattr(self.model, 'names') else None
 
     @property
     def device(self):
@@ -268,17 +381,48 @@ class ModelEngine(nn.Module):
     @property
     def transforms(self):
         """Returns transform of the loaded model."""
-        return self.model.transforms if hasattr(self.model, "transforms") else None
+        return self.model.transforms if hasattr(self.model, 'transforms') else None
 
-    def add_callback(self, event: str, func: Any) -> None:
+    def add_callback(self, event: str, func):
         """Add a callback."""
         self.callbacks[event].append(func)
 
-    def clear_callback(self, event: str) -> None:
+    def clear_callback(self, event: str):
         """Clear all event callbacks."""
         self.callbacks[event] = []
 
-    def reset_callbacks(self) -> None:
+    def reset_callbacks(self):
         """Reset all registered callbacks."""
         for event in callbacks.default_callbacks.keys():
             self.callbacks[event] = [callbacks.default_callbacks[event][0]]
+
+    @staticmethod
+    def _reset_ckpt_args(args):
+        """Reset arguments when loading a PyTorch model."""
+        include = {'imgsz', 'data', 'task', 'single_cls'}  # only remember these arguments when loading a PyTorch model
+        return {k: v for k, v in args.items() if k in include}
+
+    # def __getattr__(self, attr):
+    #    """Raises error if object has no requested attribute."""
+    #    name = self.__class__.__name__
+    #    raise AttributeError(f"'{name}' object has no attribute '{attr}'. See valid attributes below.\n{self.__doc__}")
+
+    def _smart_load(self, key):
+        """Load model/trainer/validator/predictor."""
+        try:
+            return self.task_map[self.task][key]
+        except Exception as e:
+            name = self.__class__.__name__
+            mode = inspect.stack()[1][3]  # get the function name.
+            raise NotImplementedError(
+                emojis(f"WARNING ⚠️ '{name}' model does not support '{mode}' mode for '{self.task}' task yet.")) from e
+
+    @property
+    def task_map(self):
+        """
+        Map head to model, trainer, validator, and predictor classes.
+
+        Returns:
+            task_map (dict): The map of model task to mode classes.
+        """
+        raise NotImplementedError('Please provide task map for your model!')

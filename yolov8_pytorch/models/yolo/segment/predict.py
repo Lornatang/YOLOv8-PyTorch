@@ -1,11 +1,11 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
 from yolov8_pytorch.engine.results import Results
-from yolov8_pytorch.models.yolo.detect.predict import DetectionInferencer
+from yolov8_pytorch.models.yolo.detect.predict import DetectionPredictor
 from yolov8_pytorch.utils import DEFAULT_CFG, ops
 
 
-class SegmentationPredictor(DetectionInferencer):
+class SegmentationPredictor(DetectionPredictor):
     """
     A class extending the DetectionPredictor class for prediction based on a segmentation model.
 
@@ -20,9 +20,9 @@ class SegmentationPredictor(DetectionInferencer):
         ```
     """
 
-    def __init__(self, config_dict=DEFAULT_CFG, overrides=None, _callbacks=None):
+    def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks=None):
         """Initializes the SegmentationPredictor with the provided configuration, overrides, and callbacks."""
-        super().__init__(config_dict, overrides, _callbacks)
+        super().__init__(cfg, overrides, _callbacks)
         self.args.task = 'segment'
 
     def postprocess(self, preds, img, orig_imgs):

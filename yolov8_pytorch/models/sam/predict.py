@@ -14,7 +14,7 @@ import torch.nn.functional as F
 import torchvision
 
 from yolov8_pytorch.data.augment import LetterBox
-from yolov8_pytorch.engine.inferencer import InferencerEngine
+from yolov8_pytorch.engine.predictor import BasePredictor
 from yolov8_pytorch.engine.results import Results
 from yolov8_pytorch.utils import DEFAULT_CFG, ops
 from yolov8_pytorch.utils.torch_utils import select_device
@@ -24,7 +24,7 @@ from .amg import (batch_iterator, batched_mask_to_box, build_all_layer_point_gri
 from .build import build_sam
 
 
-class Inferencer(InferencerEngine):
+class Predictor(BasePredictor):
     """
     Predictor class for the Segment Anything Model (SAM), extending BasePredictor.
 
@@ -44,7 +44,7 @@ class Inferencer(InferencerEngine):
         segment_all (bool): Flag to control whether to segment all objects in the image or only specified ones.
     """
 
-    def __init__(self, config_dict=DEFAULT_CFG, overrides=None, _callbacks=None):
+    def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks=None):
         """
         Initialize the Predictor with configuration, overrides, and callbacks.
 
@@ -52,14 +52,14 @@ class Inferencer(InferencerEngine):
         initializes task-specific settings for SAM, such as retina_masks being set to True for optimal results.
 
         Args:
-            config_dict (dict): Configuration dictionary.
+            cfg (dict): Configuration dictionary.
             overrides (dict, optional): Dictionary of values to override default configuration.
             _callbacks (dict, optional): Dictionary of callback functions to customize behavior.
         """
         if overrides is None:
             overrides = {}
         overrides.update(dict(task='segment', mode='predict', imgsz=1024))
-        super().__init__(config_dict, overrides, _callbacks)
+        super().__init__(cfg, overrides, _callbacks)
         self.args.retina_masks = True
         self.im = None
         self.features = None

@@ -17,17 +17,16 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from omegaconf import DictConfig
 from torch import distributed as dist
 from torch import nn, optim
 
-from yolov8_pytorch.cfg import get_cfg, get_results_dir
+from yolov8_pytorch.cfg import get_cfg, get_save_dir
 from yolov8_pytorch.data.utils import check_cls_dataset, check_det_dataset
 from yolov8_pytorch.nn.tasks import attempt_load_one_weight, attempt_load_weights
-from yolov8_pytorch.utils import (LOGGER, RANK, TQDM, __version__, callbacks, clean_url, colorstr, emojis,
+from yolov8_pytorch.utils import (DEFAULT_CFG, LOGGER, RANK, TQDM, __version__, callbacks, clean_url, colorstr, emojis,
                                   yaml_save)
 from yolov8_pytorch.utils.autobatch import check_train_batch_size
-from yolov8_pytorch.utils.checks import check_file, check_imgsz, check_model_file_from_stem, print_args
+from yolov8_pytorch.utils.checks import check_amp, check_file, check_imgsz, check_model_file_from_stem, print_args
 from yolov8_pytorch.utils.dist import ddp_cleanup, generate_ddp_command
 from yolov8_pytorch.utils.files import get_latest_run
 from yolov8_pytorch.utils.torch_utils import (EarlyStopping, ModelEMA, de_parallel, init_seeds, one_cycle, select_device,
@@ -71,7 +70,7 @@ class BaseTrainer:
         csv (Path): Path to results CSV file.
     """
 
-    def __init__(self, cfg: DictConfig = None, overrides=None, _callbacks=None):
+    def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks=None):
         """
         Initializes the BaseTrainer class.
 
@@ -79,9 +78,7 @@ class BaseTrainer:
             cfg (str, optional): Path to a configuration file. Defaults to DEFAULT_CFG.
             overrides (dict, optional): Configuration overrides. Defaults to None.
         """
-        self.args = get_cfg()
-        self.args.task = 'detect'
-        self.args.data = cfg.TRAIN.data
+        self.args = get_cfg(cfg, overrides)
         self.check_resume(overrides)
         self.device = select_device(self.args.device, self.args.batch)
         self.validator = None
@@ -90,7 +87,7 @@ class BaseTrainer:
         init_seeds(self.args.seed + 1 + RANK, deterministic=self.args.deterministic)
 
         # Dirs
-        self.save_dir = get_results_dir(self.args)
+        self.save_dir = get_save_dir(self.args)
         self.args.name = self.save_dir.name  # update name for loggers
         self.wdir = self.save_dir / 'weights'  # weights dir
         if RANK in (-1, 0):
@@ -240,7 +237,7 @@ class BaseTrainer:
         self.amp = torch.tensor(self.args.amp).to(self.device)  # True or False
         if self.amp and RANK in (-1, 0):  # Single-GPU and DDP
             callbacks_backup = callbacks.default_callbacks.copy()  # backup callbacks as check_amp() resets them
-            self.amp = True
+            self.amp = torch.tensor(check_amp(self.model), device=self.device)
             callbacks.default_callbacks = callbacks_backup  # restore callbacks
         if RANK > -1 and world_size > 1:  # DDP
             dist.broadcast(self.amp, src=0)  # broadcast the tensor from rank 0 to all other ranks (returns None)
@@ -509,7 +506,7 @@ class BaseTrainer:
             self.best_fitness = fitness
         return metrics, fitness
 
-    def get_model(self, config_dict=None, weights=None, verbose=True):
+    def get_model(self, cfg=None, weights=None, verbose=True):
         """Get model and raise NotImplementedError for loading cfg files."""
         raise NotImplementedError("This task trainer doesn't support loading cfg files")
 
@@ -690,7 +687,7 @@ class BaseTrainer:
             raise NotImplementedError(
                 f"Optimizer '{name}' not found in list of available optimizers "
                 f'[Adam, AdamW, NAdam, RAdam, RMSProp, SGD, auto].'
-                'To request support for addition optimizers please visit https://github.com/yolov8_pytorch/yolov8_pytorch.')
+                'To request support for addition optimizers please visit https://github.com/ultralytics/ultralytics.')
 
         optimizer.add_param_group({'params': g[0], 'weight_decay': decay})  # add g0 with weight_decay
         optimizer.add_param_group({'params': g[1], 'weight_decay': 0.0})  # add g1 (BatchNorm2d weights)

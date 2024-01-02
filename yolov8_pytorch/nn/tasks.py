@@ -1,19 +1,19 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
-import ast
 import contextlib
+from copy import deepcopy
 from pathlib import Path
 
 import torch
 import torch.nn as nn
 
 from yolov8_pytorch.nn.modules import (AIFI, C1, C2, C3, C3TR, SPP, SPPF, Bottleneck, BottleneckCSP, C2f, C3Ghost, C3x,
-                                       Concat, Conv, Conv2, ConvTranspose, Detect, DWConv, DWConvTranspose2d,
-                                       Focus, GhostBottleneck, GhostConv, HGBlock, HGStem, RepC3, RepConv,
+                                       Classify, Concat, Conv, Conv2, ConvTranspose, Detect, DWConv, DWConvTranspose2d,
+                                       Focus, GhostBottleneck, GhostConv, HGBlock, HGStem, Pose, RepC3, RepConv,
                                        ResNetLayer, RTDETRDecoder, Segment)
-from yolov8_pytorch.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, emojis, yaml_load
+from yolov8_pytorch.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from yolov8_pytorch.utils.checks import check_requirements, check_suffix, check_yaml
-from yolov8_pytorch.utils.loss import v8DetectionLoss, v8SegmentationLoss
+from yolov8_pytorch.utils.loss import v8ClassificationLoss, v8DetectionLoss, v8PoseLoss, v8SegmentationLoss
 from yolov8_pytorch.utils.plotting import feature_visualization
 from yolov8_pytorch.utils.torch_utils import (fuse_conv_and_bn, fuse_deconv_and_bn, initialize_weights, intersect_dicts,
                                               make_divisible, model_info, scale_img, time_sync)
@@ -22,8 +22,6 @@ try:
     import thop
 except ImportError:
     thop = None
-
-from omegaconf import DictConfig
 
 
 class BaseModel(nn.Module):
@@ -227,19 +225,27 @@ class BaseModel(nn.Module):
 class DetectionModel(BaseModel):
     """YOLOv8 detection model."""
 
-    def __init__(self, model_config: DictConfig, verbose: bool = False):
+    def __init__(self, cfg='yolov8n.yaml', ch=3, nc=None, verbose=True):  # model, input channels, number of classes
         """Initialize the YOLOv8 detection model with the given config and parameters."""
         super().__init__()
-        self.model, self.save = create_model_from_yaml(model_config, verbose)
-        self.names = {i: f"{i}" for i in range(model_config.NUM_CLASSES)}  # default names dict
+        self.yaml = cfg if isinstance(cfg, dict) else yaml_model_load(cfg)  # cfg dict
+
+        # Define model
+        ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels
+        if nc and nc != self.yaml['nc']:
+            LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
+            self.yaml['nc'] = nc  # override YAML value
+        self.model, self.save = parse_model(deepcopy(self.yaml), ch=ch, verbose=verbose)  # model, savelist
+        self.names = {i: f'{i}' for i in range(self.yaml['nc'])}  # default names dict
+        self.inplace = self.yaml.get('inplace', True)
 
         # Build strides
         m = self.model[-1]  # Detect()
-        if isinstance(m, (Detect, Segment)):
+        if isinstance(m, (Detect, Segment, Pose)):
             s = 256  # 2x min stride
-            m.inplace = True
-            forward = lambda x: self.forward(x)[0] if isinstance(m, Segment) else self.forward(x)
-            m.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, model_config.IN_CHANNELS, s, s))])  # forward
+            m.inplace = self.inplace
+            forward = lambda x: self.forward(x)[0] if isinstance(m, (Segment, Pose)) else self.forward(x)
+            m.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, ch, s, s))])  # forward
             self.stride = m.stride
             m.bias_init()  # only run once
         else:
@@ -302,6 +308,73 @@ class SegmentationModel(DetectionModel):
     def init_criterion(self):
         """Initialize the loss criterion for the SegmentationModel."""
         return v8SegmentationLoss(self)
+
+
+class PoseModel(DetectionModel):
+    """YOLOv8 pose model."""
+
+    def __init__(self, cfg='yolov8n-pose.yaml', ch=3, nc=None, data_kpt_shape=(None, None), verbose=True):
+        """Initialize YOLOv8 Pose model."""
+        if not isinstance(cfg, dict):
+            cfg = yaml_model_load(cfg)  # load model YAML
+        if any(data_kpt_shape) and list(data_kpt_shape) != list(cfg['kpt_shape']):
+            LOGGER.info(f"Overriding model.yaml kpt_shape={cfg['kpt_shape']} with kpt_shape={data_kpt_shape}")
+            cfg['kpt_shape'] = data_kpt_shape
+        super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
+
+    def init_criterion(self):
+        """Initialize the loss criterion for the PoseModel."""
+        return v8PoseLoss(self)
+
+
+class ClassificationModel(BaseModel):
+    """YOLOv8 classification model."""
+
+    def __init__(self, cfg='yolov8n-cls.yaml', ch=3, nc=None, verbose=True):
+        """Init ClassificationModel with YAML, channels, number of classes, verbose flag."""
+        super().__init__()
+        self._from_yaml(cfg, ch, nc, verbose)
+
+    def _from_yaml(self, cfg, ch, nc, verbose):
+        """Set YOLOv8 model configurations and define the model architecture."""
+        self.yaml = cfg if isinstance(cfg, dict) else yaml_model_load(cfg)  # cfg dict
+
+        # Define model
+        ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels
+        if nc and nc != self.yaml['nc']:
+            LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
+            self.yaml['nc'] = nc  # override YAML value
+        elif not nc and not self.yaml.get('nc', None):
+            raise ValueError('nc not specified. Must specify nc in model.yaml or function arguments.')
+        self.model, self.save = parse_model(deepcopy(self.yaml), ch=ch, verbose=verbose)  # model, savelist
+        self.stride = torch.Tensor([1])  # no stride constraints
+        self.names = {i: f'{i}' for i in range(self.yaml['nc'])}  # default names dict
+        self.info()
+
+    @staticmethod
+    def reshape_outputs(model, nc):
+        """Update a TorchVision classification model to class count 'n' if required."""
+        name, m = list((model.model if hasattr(model, 'model') else model).named_children())[-1]  # last module
+        if isinstance(m, Classify):  # YOLO Classify() head
+            if m.linear.out_features != nc:
+                m.linear = nn.Linear(m.linear.in_features, nc)
+        elif isinstance(m, nn.Linear):  # ResNet, EfficientNet
+            if m.out_features != nc:
+                setattr(model, name, nn.Linear(m.in_features, nc))
+        elif isinstance(m, nn.Sequential):
+            types = [type(x) for x in m]
+            if nn.Linear in types:
+                i = types.index(nn.Linear)  # nn.Linear index
+                if m[i].out_features != nc:
+                    m[i] = nn.Linear(m[i].in_features, nc)
+            elif nn.Conv2d in types:
+                i = types.index(nn.Conv2d)  # nn.Conv2d index
+                if m[i].out_channels != nc:
+                    m[i] = nn.Conv2d(m[i].in_channels, nc, m[i].kernel_size, m[i].stride, bias=m[i].bias is not None)
+
+    def init_criterion(self):
+        """Initialize the loss criterion for the ClassificationModel."""
+        return v8ClassificationLoss()
 
 
 class RTDETRDetectionModel(DetectionModel):
@@ -499,17 +572,17 @@ def torch_safe_load(weight):
     file = attempt_download_asset(weight)  # search online if missing locally
     try:
         with temporary_modules({
-            'yolov8_pytorch.yolo.utils': 'yolov8_pytorch.utils',
-            'yolov8_pytorch.yolo.v8': 'yolov8_pytorch.models.yolo',
-            'yolov8_pytorch.yolo.data': 'yolov8_pytorch.data'}):  # for legacy 8.0 Classify and Pose models
+                'yolov8_pytorch.yolo.utils': 'yolov8_pytorch.utils',
+                'yolov8_pytorch.yolo.v8': 'yolov8_pytorch.models.yolo',
+                'yolov8_pytorch.yolo.data': 'yolov8_pytorch.data'}):  # for legacy 8.0 Classify and Pose models
             return torch.load(file, map_location='cpu'), file  # load
 
     except ModuleNotFoundError as e:  # e.name is missing module name
         if e.name == 'models':
             raise TypeError(
                 emojis(f'ERROR ❌️ {weight} appears to be an Ultralytics YOLOv5 model originally trained '
-                       f'with https://github.com/yolov8_pytorch/yolov5.\nThis model is NOT forwards compatible with '
-                       f'YOLOv8 at https://github.com/yolov8_pytorch/yolov8_pytorch.'
+                       f'with https://github.com/ultralytics/yolov5.\nThis model is NOT forwards compatible with '
+                       f'YOLOv8 at https://github.com/ultralytics/ultralytics.'
                        f"\nRecommend fixes are to train a new model using the latest 'yolov8_pytorch' package or to "
                        f"run a command with an official YOLOv8 model, i.e. 'yolo predict model=yolov8n.pt'")) from e
         LOGGER.warning(f"WARNING ⚠️ {weight} appears to require '{e.name}', which is not in yolov8_pytorch requirements."
@@ -588,85 +661,83 @@ def attempt_load_one_weight(weight, device=None, inplace=True, fuse=False):
     return model, ckpt
 
 
-def create_model_from_yaml(model_config: DictConfig, verbose: bool = False) -> [nn.Module, list]:
-    """Parse a YOLO model.yaml dictionary into a PyTorch model.
+def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
+    """Parse a YOLO model.yaml dictionary into a PyTorch model."""
+    import ast
 
-    Args:
-        model_config (DictConfig): The model.yaml dictionary.
-        verbose (bool, optional): Whether to print the model architecture. Defaults to False.
+    # Args
+    max_channels = float('inf')
+    nc, act, scales = (d.get(x) for x in ('nc', 'activation', 'scales'))
+    depth, width, kpt_shape = (d.get(x, 1.0) for x in ('depth_multiple', 'width_multiple', 'kpt_shape'))
+    if scales:
+        scale = d.get('scale')
+        if not scale:
+            scale = tuple(scales.keys())[0]
+            LOGGER.warning(f"WARNING ⚠️ no model scale passed. Assuming scale='{scale}'.")
+        depth, width, max_channels = scales[scale]
 
-    Returns:
-        [nn.Module, list]: The PyTorch model and the save list.
+    if act:
+        Conv.default_act = eval(act)  # redefine default activation, i.e. Conv.default_act = nn.SiLU()
+        if verbose:
+            LOGGER.info(f"{colorstr('activation:')} {act}")  # print
 
-    Examples:
-        >>> model, save_list = create_model_from_yaml(model_config)
-        >>> print(model)
-        >>> print(save_list)
-        >>> print(sum(x.numel() for x in model.parameters()))
-    """
-    in_channels = model_config.IN_CHANNELS
-    num_classes = model_config.NUM_CLASSES
-    depth_multiple = model_config.DEPTH_MULTIPLE
-    width_multiple = model_config.WIDTH_MULTIPLE
-    max_channels = model_config.MAX_CHANNELS
-
-    channels = [in_channels]
-    layers, save_list, out_channels = [], [], channels[-1]
-    for i, (_from, _num_layers, _module, _parameters) in enumerate(model_config.ARCH):  # from, number, module, args
-        _module = getattr(torch.nn, _module[3:]) if "nn." in _module else globals()[_module]  # get module
-        for j, parameters in enumerate(_parameters):
-            if isinstance(parameters, str):
-                with contextlib.suppress(ValueError):
-                    _parameters[j] = locals()[parameters] if parameters in locals() else ast.literal_eval(parameters)
-
-        _num_layers = n_ = max(round(_num_layers * depth_multiple), 1) if _num_layers > 1 else _num_layers  # depth gain
-        if _module in (Conv, ConvTranspose, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, Focus,
-                       BottleneckCSP, C1, C2, C2f, C3, C3TR, C3Ghost, nn.ConvTranspose2d, DWConvTranspose2d, C3x, RepC3):
-            in_channels, out_channels = channels[_from], _parameters[0]
-            if out_channels != num_classes:
-                out_channels = make_divisible(min(out_channels, max_channels) * width_multiple, 8)
-
-            _parameters = [in_channels, out_channels, *_parameters[1:]]
-            if _module in (BottleneckCSP, C1, C2, C2f, C3, C3TR, C3Ghost, C3x, RepC3):
-                _parameters.insert(2, _num_layers)  # number of repeats
-                _num_layers = 1
-        elif _module is AIFI:
-            _parameters = [channels[_from], *_parameters]
-        elif _module in (HGStem, HGBlock):
-            in_channels, cm, out_channels = channels[_from], _parameters[0], _parameters[1]
-            _parameters = [in_channels, cm, out_channels, *_parameters[2:]]
-            if _module is HGBlock:
-                _parameters.insert(4, _num_layers)  # number of repeats
-                _num_layers = 1
-        elif _module is ResNetLayer:
-            out_channels = _parameters[1] if _parameters[3] else _parameters[1] * 4
-        elif _module is nn.BatchNorm2d:
-            _parameters = [channels[_from]]
-        elif _module is Concat:
-            out_channels = sum(channels[x] for x in _from)
-        elif _module in (Detect, Segment):
-            _parameters.append([channels[x] for x in _from])
-            _parameters = _parameters[:2]
-            if _module is Segment:
-                _parameters[2] = make_divisible(min(_parameters[2], max_channels) * width_multiple, 8)
-        elif _module is RTDETRDecoder:  # special case, channels arg must be passed in index 1
-            _parameters.insert(1, [channels[x] for x in _from])
-        else:
-            out_channels = channels[_from]
-
-        _modules = nn.Sequential(*(_module(*_parameters) for _ in range(_num_layers))) if _num_layers > 1 else _module(*_parameters)
-        module_type = str(_module)[8:-2].replace("__main__.", "")
-        _modules.i, _modules.f, _modules.type = i, _from, module_type
-        save_list.extend(x % i for x in ([_from] if isinstance(_from, int) else _from) if x != -1)
-        layers.append(_modules)
-        if i == 0:
-            channels = []
-        channels.append(out_channels)
-
-    layers = nn.Sequential(*layers)
     if verbose:
-        print(layers)
-    return layers, sorted(save_list)
+        LOGGER.info(f"\n{'':>3}{'from':>20}{'n':>3}{'params':>10}  {'module':<45}{'arguments':<30}")
+    ch = [ch]
+    layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
+    for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
+        m = getattr(torch.nn, m[3:]) if 'nn.' in m else globals()[m]  # get module
+        for j, a in enumerate(args):
+            if isinstance(a, str):
+                with contextlib.suppress(ValueError):
+                    args[j] = locals()[a] if a in locals() else ast.literal_eval(a)
+
+        n = n_ = max(round(n * depth), 1) if n > 1 else n  # depth gain
+        if m in (Classify, Conv, ConvTranspose, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, Focus,
+                 BottleneckCSP, C1, C2, C2f, C3, C3TR, C3Ghost, nn.ConvTranspose2d, DWConvTranspose2d, C3x, RepC3):
+            c1, c2 = ch[f], args[0]
+            if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+
+            args = [c1, c2, *args[1:]]
+            if m in (BottleneckCSP, C1, C2, C2f, C3, C3TR, C3Ghost, C3x, RepC3):
+                args.insert(2, n)  # number of repeats
+                n = 1
+        elif m is AIFI:
+            args = [ch[f], *args]
+        elif m in (HGStem, HGBlock):
+            c1, cm, c2 = ch[f], args[0], args[1]
+            args = [c1, cm, c2, *args[2:]]
+            if m is HGBlock:
+                args.insert(4, n)  # number of repeats
+                n = 1
+        elif m is ResNetLayer:
+            c2 = args[1] if args[3] else args[1] * 4
+        elif m is nn.BatchNorm2d:
+            args = [ch[f]]
+        elif m is Concat:
+            c2 = sum(ch[x] for x in f)
+        elif m in (Detect, Segment, Pose):
+            args.append([ch[x] for x in f])
+            if m is Segment:
+                args[2] = make_divisible(min(args[2], max_channels) * width, 8)
+        elif m is RTDETRDecoder:  # special case, channels arg must be passed in index 1
+            args.insert(1, [ch[x] for x in f])
+        else:
+            c2 = ch[f]
+
+        m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
+        t = str(m)[8:-2].replace('__main__.', '')  # module type
+        m.np = sum(x.numel() for x in m_.parameters())  # number params
+        m_.i, m_.f, m_.type = i, f, t  # attach index, 'from' index, type
+        if verbose:
+            LOGGER.info(f'{i:>3}{str(f):>20}{n_:>3}{m.np:10.0f}  {t:<45}{str(args):<30}')  # print
+        save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist
+        layers.append(m_)
+        if i == 0:
+            ch = []
+        ch.append(c2)
+    return nn.Sequential(*layers), sorted(save)
 
 
 def yaml_model_load(path):
@@ -750,6 +821,10 @@ def guess_model_task(model):
                 return 'detect'
             elif isinstance(m, Segment):
                 return 'segment'
+            elif isinstance(m, Classify):
+                return 'classify'
+            elif isinstance(m, Pose):
+                return 'pose'
 
     # Guess from model filename
     if isinstance(model, (str, Path)):
@@ -767,13 +842,3 @@ def guess_model_task(model):
     LOGGER.warning("WARNING ⚠️ Unable to automatically guess model task, assuming 'task=detect'. "
                    "Explicitly define task for your model, i.e. 'task=detect', 'segment', 'classify', or 'pose'.")
     return 'detect'  # assume detect
-
-
-def load_weights(weights_path: str | Path, device: torch.device = None, fused: bool = False):
-    if isinstance(weights_path, str):
-        weights_path = Path(weights_path)
-
-    checkpoint = torch.load(weights_path, map_location="cpu" if device is None else device)
-    weights = (checkpoint.get("ema_model") or checkpoint["model"]).to(device).float()
-    weights = weights.fuse().eval() if fused and hasattr(weights, "fused") else weights.eval()
-    return weights

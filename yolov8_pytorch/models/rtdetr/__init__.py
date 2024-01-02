@@ -1,7 +1,7 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
 from .model import RTDETR
-from .predict import RTDETRInferencer
+from .predict import RTDETRPredictor
 from .val import RTDETRValidator
 
-__all__ = 'RTDETRInferencer', 'RTDETRValidator', 'RTDETR'
+__all__ = 'RTDETRPredictor', 'RTDETRValidator', 'RTDETR'

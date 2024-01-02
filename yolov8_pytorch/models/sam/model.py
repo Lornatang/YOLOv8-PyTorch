@@ -16,13 +16,14 @@ Key Features:
 
 from pathlib import Path
 
-from yolov8_pytorch.engine.model import ModelEngine
+from yolov8_pytorch.engine.model import Model
 from yolov8_pytorch.utils.torch_utils import model_info
+
 from .build import build_sam
-from .predict import Inferencer
+from .predict import Predictor
 
 
-class SAM(ModelEngine):
+class SAM(Model):
     """
     SAM (Segment Anything Model) interface class.
 
@@ -31,19 +32,19 @@ class SAM(ModelEngine):
     dataset.
     """
 
-    def __init__(self, config_dict='sam_b.pt') -> None:
+    def __init__(self, model='sam_b.pt') -> None:
         """
         Initializes the SAM model with a pre-trained model file.
 
         Args:
-            config_dict (str): Path to the pre-trained SAM model file. File should have a .pt or .pth extension.
+            model (str): Path to the pre-trained SAM model file. File should have a .pt or .pth extension.
 
         Raises:
             NotImplementedError: If the model file extension is not .pt or .pth.
         """
-        if config_dict and Path(config_dict).suffix not in ('.pt', '.pth'):
+        if model and Path(model).suffix not in ('.pt', '.pth'):
             raise NotImplementedError('SAM prediction requires pre-trained *.pt or *.pth model.')
-        super().__init__(config_dict=config_dict, task='segment')
+        super().__init__(model=model, task='segment')
 
     def _load(self, weights: str, task=None):
         """
@@ -55,7 +56,7 @@ class SAM(ModelEngine):
         """
         self.model = build_sam(weights)
 
-    def inference(self, source, stream=False, bboxes=None, points=None, labels=None, **kwargs):
+    def predict(self, source, stream=False, bboxes=None, points=None, labels=None, **kwargs):
         """
         Performs segmentation prediction on the given image or video source.
 
@@ -72,7 +73,7 @@ class SAM(ModelEngine):
         overrides = dict(conf=0.25, task='segment', mode='predict', imgsz=1024)
         kwargs.update(overrides)
         prompts = dict(bboxes=bboxes, points=points, labels=labels)
-        return super().inference(source, stream, prompts=prompts, **kwargs)
+        return super().predict(source, stream, prompts=prompts, **kwargs)
 
     def __call__(self, source=None, stream=False, bboxes=None, points=None, labels=None, **kwargs):
         """
@@ -88,7 +89,7 @@ class SAM(ModelEngine):
         Returns:
             (list): The model predictions.
         """
-        return self.inference(source, stream, bboxes, points, labels, **kwargs)
+        return self.predict(source, stream, bboxes, points, labels, **kwargs)
 
     def info(self, detailed=False, verbose=True):
         """
@@ -111,4 +112,4 @@ class SAM(ModelEngine):
         Returns:
             (dict): A dictionary mapping the 'segment' task to its corresponding 'Predictor'.
         """
-        return {'segment': {'predictor': Inferencer}}
+        return {'segment': {'predictor': Predictor}}

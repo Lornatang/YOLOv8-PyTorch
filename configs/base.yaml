@@ -1,11 +1,9 @@
-# Ultralytics YOLO 🚀, AGPL-3.0 license
-# Default training settings and hyperparameters for medium-augmentation COCO training
-
-mode: train  # (str) YOLO mode, i.e. train, val, predict, export,, benchmark
+task: detect  # (str) YOLO task, i.e. detect, segment, classify, pose
+mode: train  # (str) YOLO mode, i.e. train, val, predict, export, track, benchmark
 
 # Train settings -------------------------------------------------------------------------------------------------------
-model:  # (str, optional) path to model file, i.e. yolov8n.pt, yolov8n.yaml
-data:  # (str, optional) path to data file, i.e. coco128.yaml
+model: configs/COCO-Detection/yolov8n.yaml # (str, optional) path to model file, i.e. yolov8n.pt, yolov8n.yaml
+data: configs/COCO-Detection/coco128.yaml # (str, optional) path to data file, i.e. coco128.yaml
 epochs: 100  # (int) number of epochs to train for
 time:  # (float, optional) number of hours to train for, overrides epochs if supplied
 patience: 50  # (int) epochs to wait for no observable improvement for early stopping of training
@@ -14,10 +12,10 @@ imgsz: 640  # (int | list) input images size as int for train and val modes, or 
 save: True  # (bool) save train checkpoints and predict results
 save_period: -1 # (int) Save checkpoint every x epochs (disabled if < 1)
 cache: False  # (bool) True/ram, disk or False. Use cache for data loading
-device:  # (int | str | list, optional) device to run on, i.e. cuda device=0 or device=0,1,2,3 or device=cpu
+device: 0 # (int | str | list, optional) device to run on, i.e. cuda device=0 or device=0,1,2,3 or device=cpu
 workers: 8  # (int) number of worker threads for data loading (per RANK if DDP)
-project:  # (str, optional) project name
-name:  # (str, optional) experiment name, results saved to 'project/name' directory
+project: yolov8_pytorch # (str, optional) project name
+name: YOLOv8n-COCO-Detection  # (str, optional) experiment name, results saved to 'project/name' directory
 exist_ok: False  # (bool) whether to overwrite existing experiment
 pretrained: True  # (bool | str) whether to use a pretrained model (bool) or a model to load weights from (str)
 optimizer: auto  # (str) optimizer to use, choices=[SGD, Adam, Adamax, AdamW, NAdam, RAdam, RMSProp, auto]
@@ -44,7 +42,7 @@ val: True  # (bool) validate/test during training
 split: val  # (str) dataset split to use for validation, i.e. 'val', 'test' or 'train'
 save_json: False  # (bool) save results to JSON file
 save_hybrid: False  # (bool) save hybrid version of labels (labels + additional predictions)
-conf:  # (float, optional) object confidence threshold for detection (default 0.25 predict, 0.001 val)
+conf: 0.25 # (float, optional) object confidence threshold for detection (default 0.25 predict, 0.001 val)
 iou: 0.7  # (float) intersection over union (IoU) threshold for NMS
 max_det: 300  # (int) maximum number of detections per image
 half: False  # (bool) use half precision (FP16)
@@ -60,7 +58,7 @@ augment: False  # (bool) apply image augmentation to prediction sources
 agnostic_nms: False  # (bool) class-agnostic NMS
 classes:  # (int | list[int], optional) filter results by class, i.e. classes=0, or classes=[0,2,3]
 retina_masks: False  # (bool) use high-resolution segmentation masks
-embed:  # (list[int], optional) return feature vectors/embeddings from given layers
+embed: True # (list[int], optional) return feature vectors/embeddings from given layers
 
 # Visualize settings ---------------------------------------------------------------------------------------------------
 show: False  # (bool) show predicted images and videos if environment allows
@@ -71,7 +69,7 @@ save_crop: False  # (bool) save cropped images with results
 show_labels: True  # (bool) show prediction labels, i.e. 'person'
 show_conf: True  # (bool) show prediction confidence, i.e. '0.99'
 show_boxes: True  # (bool) show prediction boxes
-line_width:   # (int, optional) line width of the bounding boxes. Scaled to image size if None.
+line_width: 1  # (int, optional) line width of the bounding boxes. Scaled to image size if None.
 
 # Export settings ------------------------------------------------------------------------------------------------------
 format: torchscript  # (str) format to export to, choices at https://docs.ultralytics.com/modes/export/#export-formats

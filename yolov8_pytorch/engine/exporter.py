@@ -67,8 +67,8 @@ from yolov8_pytorch.data.utils import check_det_dataset
 from yolov8_pytorch.nn.autobackend import check_class_names, default_class_names
 from yolov8_pytorch.nn.modules import C2f, Detect, RTDETRDecoder
 from yolov8_pytorch.nn.tasks import DetectionModel, SegmentationModel
-from yolov8_pytorch.utils import (ARM64, DEFAULT_CFG, LINUX, LOGGER, MACOS, ROOT, WINDOWS, __version__, callbacks,
-                               colorstr, get_default_args, yaml_save)
+from yolov8_pytorch.utils import (ARM64, DEFAULT_CFG, LINUX, LOGGER, MACOS, WINDOWS, __version__, callbacks,
+                                  colorstr, get_default_args, yaml_save)
 from yolov8_pytorch.utils.checks import check_imgsz, check_is_path_safe, check_requirements, check_version
 from yolov8_pytorch.utils.downloads import attempt_download_asset, get_github_assets
 from yolov8_pytorch.utils.files import file_size, spaces_in_path
@@ -133,16 +133,16 @@ class Exporter:
         callbacks (list, optional): List of callback functions. Defaults to None.
     """
 
-    def __init__(self, config_dict=DEFAULT_CFG, overrides=None, _callbacks=None):
+    def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks=None):
         """
         Initializes the Exporter class.
 
         Args:
-            config_dict (str, optional): Path to a configuration file. Defaults to DEFAULT_CFG.
+            cfg (str, optional): Path to a configuration file. Defaults to DEFAULT_CFG.
             overrides (dict, optional): Configuration overrides. Defaults to None.
             _callbacks (dict, optional): Dictionary of callback functions. Defaults to None.
         """
-        self.args = get_cfg(config_dict, overrides)
+        self.args = get_cfg(cfg, overrides)
         if self.args.format.lower() in ('coreml', 'mlmodel'):  # fix attempt for protobuf<3.20.x errors
             os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'  # must run before TensorBoard callback
 
@@ -232,7 +232,7 @@ class Exporter:
         self.metadata = {
             'description': description,
             'author': 'Ultralytics',
-            'license': 'AGPL-3.0 https://yolov8_pytorch.com/license',
+            'license': 'AGPL-3.0 https://ultralytics.com/license',
             'date': datetime.now().isoformat(),
             'version': __version__,
             'stride': int(max(model.stride)),
@@ -267,8 +267,6 @@ class Exporter:
                 f[7], _ = self.export_tflite(keras_model=keras_model, nms=False, agnostic_nms=self.args.agnostic_nms)
             if edgetpu:
                 f[8], _ = self.export_edgetpu(tflite_model=Path(f[5]) / f'{self.file.stem}_full_integer_quant.tflite')
-            if tfjs:
-                f[9], _ = self.export_tfjs()
         if paddle:  # PaddlePaddle
             f[10], _ = self.export_paddle()
         if ncnn:  # ncnn
@@ -453,12 +451,12 @@ class Exporter:
         f_ts = self.file.with_suffix('.torchscript')
 
         name = Path('pnnx.exe' if WINDOWS else 'pnnx')  # PNNX filename
-        pnnx = name if name.is_file() else ROOT / name
+        pnnx = name if name.is_file() else name
         if not pnnx.is_file():
             LOGGER.warning(
                 f'{prefix} WARNING ⚠️ PNNX not found. Attempting to download binary file from '
                 'https://github.com/pnnx/pnnx/.\nNote PNNX Binary file must be placed in current working directory '
-                f'or in {ROOT}. See PNNX repo for full installation instructions.')
+                f'or in. See PNNX repo for full installation instructions.')
             system = ['macos'] if MACOS else ['windows'] if WINDOWS else ['ubuntu', 'linux']  # operating system
             try:
                 _, assets = get_github_assets(repo='pnnx/pnnx', retry=True)
@@ -579,7 +577,7 @@ class Exporter:
     def export_engine(self, prefix=colorstr('TensorRT:')):
         """YOLOv8 TensorRT export https://developer.nvidia.com/tensorrt."""
         assert self.im.device.type != 'cpu', "export running on CPU but must be on GPU, i.e. use 'device=0'"
-        f_onnx, _ = self.export_onnx()  # run before trt import https://github.com/yolov8_pytorch/yolov8_pytorch/issues/7016
+        f_onnx, _ = self.export_onnx()  # run before trt import https://github.com/ultralytics/ultralytics/issues/7016
 
         try:
             import tensorrt as trt  # noqa
@@ -664,7 +662,7 @@ class Exporter:
                       '<=2.13.1',
                       name='tensorflow',
                       verbose=True,
-                      msg='https://github.com/yolov8_pytorch/yolov8_pytorch/issues/5161')
+                      msg='https://github.com/ultralytics/ultralytics/issues/5161')
         f = Path(str(self.file).replace(self.file.suffix, '_saved_model'))
         if f.is_dir():
             import shutil
@@ -759,7 +757,7 @@ class Exporter:
     @try_export
     def export_edgetpu(self, tflite_model='', prefix=colorstr('Edge TPU:')):
         """YOLOv8 Edge TPU export https://coral.ai/docs/edgetpu/models-intro/."""
-        LOGGER.warning(f'{prefix} WARNING ⚠️ Edge TPU known bug https://github.com/yolov8_pytorch/yolov8_pytorch/issues/1185')
+        LOGGER.warning(f'{prefix} WARNING ⚠️ Edge TPU known bug https://github.com/ultralytics/ultralytics/issues/1185')
 
         cmd = 'edgetpu_compiler --version'
         help_url = 'https://coral.ai/docs/edgetpu/compiler/'
@@ -898,7 +896,7 @@ class Exporter:
         if MACOS:
             from PIL import Image
             img = Image.new('RGB', (w, h))  # w=192, h=320
-            out = model.inference({'image': img})
+            out = model.predict({'image': img})
             out0_shape = out[out0.name].shape  # (3780, 80)
             out1_shape = out[out1.name].shape  # (3780, 4)
         else:  # linux and windows can not run model.predict(), get sizes from PyTorch model output y

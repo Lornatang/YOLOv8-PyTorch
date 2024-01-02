@@ -4,11 +4,11 @@ import torch
 
 from yolov8_pytorch.engine.results import Results
 from yolov8_pytorch.models.fastsam.utils import bbox_iou
-from yolov8_pytorch.models.yolo.detect.predict import DetectionInferencer
+from yolov8_pytorch.models.yolo.detect.predict import DetectionPredictor
 from yolov8_pytorch.utils import DEFAULT_CFG, ops
 
 
-class FastSAMPredictor(DetectionInferencer):
+class FastSAMPredictor(DetectionPredictor):
     """
     FastSAMPredictor is specialized for fast SAM (Segment Anything Model) segmentation prediction tasks in Ultralytics
     YOLO framework.
@@ -23,16 +23,16 @@ class FastSAMPredictor(DetectionInferencer):
         _callbacks (dict, optional): Optional list of callback functions to be invoked during prediction.
     """
 
-    def __init__(self, config_dict=DEFAULT_CFG, overrides=None, _callbacks=None):
+    def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks=None):
         """
         Initializes the FastSAMPredictor class, inheriting from DetectionPredictor and setting the task to 'segment'.
 
         Args:
-            config_dict (dict): Configuration parameters for prediction.
+            cfg (dict): Configuration parameters for prediction.
             overrides (dict, optional): Optional parameter overrides for custom behavior.
             _callbacks (dict, optional): Optional list of callback functions to be invoked during prediction.
         """
-        super().__init__(config_dict, overrides, _callbacks)
+        super().__init__(cfg, overrides, _callbacks)
         self.args.task = 'segment'
 
     def postprocess(self, preds, img, orig_imgs):

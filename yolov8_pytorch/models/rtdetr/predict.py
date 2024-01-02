@@ -3,12 +3,12 @@
 import torch
 
 from yolov8_pytorch.data.augment import LetterBox
-from yolov8_pytorch.engine.inferencer import InferencerEngine
+from yolov8_pytorch.engine.predictor import BasePredictor
 from yolov8_pytorch.engine.results import Results
 from yolov8_pytorch.utils import ops
 
 
-class RTDETRInferencer(InferencerEngine):
+class RTDETRPredictor(BasePredictor):
     """
     RT-DETR (Real-Time Detection Transformer) Predictor extending the BasePredictor class for making predictions using
     Baidu's RT-DETR model.

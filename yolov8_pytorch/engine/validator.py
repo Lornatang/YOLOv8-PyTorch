@@ -3,7 +3,7 @@
 Check a model's accuracy on a test or val split of a dataset.
 
 Usage:
-    $ yolo mode=val model=yolov8n.pt data=coco8.yaml imgsz=640
+    $ yolo mode=val model=yolov8n.pt data=coco128.yaml imgsz=640
 
 Usage - formats:
     $ yolo mode=val model=yolov8n.pt                 # PyTorch
@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from yolov8_pytorch.cfg import get_cfg, get_results_dir
+from yolov8_pytorch.cfg import get_cfg, get_save_dir
 from yolov8_pytorch.data.utils import check_cls_dataset, check_det_dataset
 from yolov8_pytorch.nn.autobackend import AutoBackend
 from yolov8_pytorch.utils import LOGGER, TQDM, callbacks, colorstr, emojis
@@ -74,7 +74,7 @@ class BaseValidator:
             args (SimpleNamespace): Configuration for the validator.
             _callbacks (dict): Dictionary to store various callback functions.
         """
-        self.args = get_cfg()
+        self.args = get_cfg(overrides=args)
         self.dataloader = dataloader
         self.pbar = pbar
         self.stride = None
@@ -91,7 +91,7 @@ class BaseValidator:
         self.jdict = None
         self.speed = {'preprocess': 0.0, 'inference': 0.0, 'loss': 0.0, 'postprocess': 0.0}
 
-        self.save_dir = save_dir or get_results_dir(self.args)
+        self.save_dir = save_dir or get_save_dir(self.args)
         (self.save_dir / 'labels' if self.args.save_txt else self.save_dir).mkdir(parents=True, exist_ok=True)
         if self.args.conf is None:
             self.args.conf = 0.001  # default conf=0.001
@@ -226,7 +226,7 @@ class BaseValidator:
         iou = iou.cpu().numpy()
         for i, threshold in enumerate(self.iouv.cpu().tolist()):
             if use_scipy:
-                # WARNING: known issue that reduces mAP in https://github.com/yolov8_pytorch/yolov8_pytorch/pull/4708
+                # WARNING: known issue that reduces mAP in https://github.com/ultralytics/ultralytics/pull/4708
                 import scipy  # scope import to avoid importing for all commands
                 cost_matrix = iou * (iou >= threshold)
                 if cost_matrix.any():

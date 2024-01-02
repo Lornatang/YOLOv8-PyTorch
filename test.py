@@ -11,9 +11,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from yolov8_pytorch.engine import ModelEngine
-from omegaconf import OmegaConf
+from yolov8_pytorch import YOLO
 
-config = OmegaConf.load("./configs/COCO-Detection/yolov8n-ours.yaml")
+model = YOLO().load("yolov8n.pt")
 
-engine = ModelEngine(config)
+results = model.predict("./yolov8_pytorch/assets/bus.jpg", save=True)

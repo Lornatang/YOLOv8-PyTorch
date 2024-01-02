@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 import torch.cuda
 
-from yolov8_pytorch.models.yolo import YOLOEngine
+from yolov8_pytorch import YOLO
 from yolov8_pytorch.cfg import TASK2DATA, TASK2METRIC
 from yolov8_pytorch.engine.exporter import export_formats
 from yolov8_pytorch.utils import ASSETS, LINUX, LOGGER, MACOS, TQDM, WEIGHTS_DIR
@@ -80,7 +80,7 @@ def benchmark(model=WEIGHTS_DIR / 'yolov8n.pt',
     pd.options.display.width = 120
     device = select_device(device, verbose=False)
     if isinstance(model, (str, Path)):
-        model = YOLOEngine(model)
+        model = YOLO(model)
 
     y = []
     t0 = time.time()
@@ -103,7 +103,7 @@ def benchmark(model=WEIGHTS_DIR / 'yolov8n.pt',
                 exported_model = model  # PyTorch format
             else:
                 filename = model.export(imgsz=imgsz, format=format, half=half, int8=int8, device=device, verbose=False)
-                exported_model = YOLOEngine(filename, task=model.task)
+                exported_model = YOLO(filename, task=model.task)
                 assert suffix in str(filename), 'export failed'
             emoji = '❎'  # indicates export succeeded
 
@@ -219,7 +219,7 @@ class ProfileModels:
         for file in files:
             engine_file = file.with_suffix('.engine')
             if file.suffix in ('.pt', '.yaml', '.yml'):
-                model = YOLOEngine(str(file))
+                model = YOLO(str(file))
                 model.fuse()  # to report correct params and GFLOPs in model.info()
                 model_info = model.info()
                 if self.trt and self.device.type != 'cpu' and not engine_file.is_file():
@@ -288,7 +288,7 @@ class ProfileModels:
             return 0.0, 0.0
 
         # Model and input
-        model = YOLOEngine(engine_file)
+        model = YOLO(engine_file)
         input_data = np.random.rand(self.imgsz, self.imgsz, 3).astype(np.float32)  # must be FP32
 
         # Warmup runs

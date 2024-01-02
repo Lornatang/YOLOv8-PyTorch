@@ -7,14 +7,15 @@ hybrid encoder and IoU-aware query selection for enhanced detection accuracy.
 For more information on RT-DETR, visit: https://arxiv.org/pdf/2304.08069.pdf
 """
 
-from yolov8_pytorch.engine.model import ModelEngine
+from yolov8_pytorch.engine.model import Model
 from yolov8_pytorch.nn.tasks import RTDETRDetectionModel
-from .predict import RTDETRInferencer
+
+from .predict import RTDETRPredictor
 from .train import RTDETRTrainer
 from .val import RTDETRValidator
 
 
-class RTDETR(ModelEngine):
+class RTDETR(Model):
     """
     Interface for Baidu's RT-DETR model. This Vision Transformer-based object detector provides real-time performance
     with high accuracy. It supports efficient hybrid encoding, IoU-aware query selection, and adaptable inference speed.
@@ -23,19 +24,19 @@ class RTDETR(ModelEngine):
         model (str): Path to the pre-trained model. Defaults to 'rtdetr-l.pt'.
     """
 
-    def __init__(self, config_dict='rtdetr-l.pt') -> None:
+    def __init__(self, model='rtdetr-l.pt') -> None:
         """
         Initializes the RT-DETR model with the given pre-trained model file. Supports .pt and .yaml formats.
 
         Args:
-            config_dict (str): Path to the pre-trained model. Defaults to 'rtdetr-l.pt'.
+            model (str): Path to the pre-trained model. Defaults to 'rtdetr-l.pt'.
 
         Raises:
             NotImplementedError: If the model file extension is not 'pt', 'yaml', or 'yml'.
         """
-        if config_dict and config_dict.split('.')[-1] not in ('pt', 'yaml', 'yml'):
+        if model and model.split('.')[-1] not in ('pt', 'yaml', 'yml'):
             raise NotImplementedError('RT-DETR only supports creating from *.pt, *.yaml, or *.yml files.')
-        super().__init__(config_dict=config_dict, task='detect')
+        super().__init__(model=model, task='detect')
 
     @property
     def task_map(self) -> dict:
@@ -47,7 +48,7 @@ class RTDETR(ModelEngine):
         """
         return {
             'detect': {
-                'predictor': RTDETRInferencer,
+                'predictor': RTDETRPredictor,
                 'validator': RTDETRValidator,
                 'trainer': RTDETRTrainer,
                 'model': RTDETRDetectionModel}}

@@ -34,6 +34,9 @@ def check_class_names(names):
         if max(names.keys()) >= n:
             raise KeyError(f'{n}-class dataset requires class indices 0-{n - 1}, but you have invalid class indices '
                            f'{min(names.keys())}-{max(names.keys())} defined in your dataset YAML.')
+        if isinstance(names[0], str) and names[0].startswith('n0'):  # imagenet class codes, i.e. 'n01440764'
+            names_map = yaml_load(ROOT / 'cfg/datasets/ImageNet.yaml')['map']  # human-readable names
+            names = {k: names_map[v] for k, v in names.items()}
     return names
 
 
@@ -290,14 +293,10 @@ class AutoBackend(nn.Module):
             net.load_param(str(w))
             net.load_model(str(w.with_suffix('.bin')))
             metadata = w.parent / 'metadata.yaml'
-        elif triton:  # NVIDIA Triton Inference Server
-            check_requirements('tritonclient[all]')
-            from yolov8_pytorch.utils.triton import TritonRemoteModel
-            model = TritonRemoteModel(w)
         else:
             from yolov8_pytorch.engine.exporter import export_formats
             raise TypeError(f"model='{w}' is not a supported model format. "
-                            'See https://docs.yolov8_pytorch.com/modes/predict for help.'
+                            'See https://docs.ultralytics.com/modes/predict for help.'
                             f'\n\n{export_formats()}')
 
         # Load external metadata YAML
@@ -380,7 +379,7 @@ class AutoBackend(nn.Module):
             im = im[0].cpu().numpy()
             im_pil = Image.fromarray((im * 255).astype('uint8'))
             # im = im.resize((192, 320), Image.BILINEAR)
-            y = self.model.inference({'image': im_pil})  # coordinates are xywh normalized
+            y = self.model.predict({'image': im_pil})  # coordinates are xywh normalized
             if 'confidence' in y:
                 raise TypeError('Ultralytics only supports inference of non-pipelined CoreML models exported with '
                                 f"'nms=False', but 'model={w}' has an NMS pipeline created by an 'nms=True' export.")
@@ -438,7 +437,7 @@ class AutoBackend(nn.Module):
                         scale, zero_point = output['quantization']
                         x = (x.astype(np.float32) - zero_point) * scale  # re-scale
                     if x.ndim > 2:  # if task is not classification
-                        # Denormalize xywh by image size. See https://github.com/yolov8_pytorch/yolov8_pytorch/pull/1695
+                        # Denormalize xywh by image size. See https://github.com/ultralytics/ultralytics/pull/1695
                         # xywh are normalized in TFLite/EdgeTPU to mitigate quantization error of integer models
                         x[:, [0, 2]] *= w
                         x[:, [1, 3]] *= h

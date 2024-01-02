@@ -24,7 +24,7 @@ import time
 import numpy as np
 import torch
 
-from yolov8_pytorch.cfg import get_cfg, get_results_dir
+from yolov8_pytorch.cfg import get_cfg, get_save_dir
 from yolov8_pytorch.utils import DEFAULT_CFG, LOGGER, callbacks, colorstr, remove_colorstr, yaml_print, yaml_save
 from yolov8_pytorch.utils.plotting import plot_tune_results
 
@@ -66,14 +66,14 @@ class Tuner:
         ```
     """
 
-    def __init__(self, config_dict=DEFAULT_CFG, _callbacks=None):
+    def __init__(self, args=DEFAULT_CFG, _callbacks=None):
         """
         Initialize the Tuner with configurations.
 
         Args:
-            config_dict (dict, optional): Configuration for hyperparameter evolution.
+            args (dict, optional): Configuration for hyperparameter evolution.
         """
-        self.space = config_dict.pop('space', None) or {  # key: (min, max, gain(optional))
+        self.space = args.pop('space', None) or {  # key: (min, max, gain(optional))
             # 'optimizer': tune.choice(['SGD', 'Adam', 'AdamW', 'NAdam', 'RAdam', 'RMSProp']),
             'lr0': (1e-5, 1e-1),  # initial learning rate (i.e. SGD=1E-2, Adam=1E-3)
             'lrf': (0.0001, 0.1),  # final OneCycleLR learning rate (lr0 * lrf)
@@ -97,14 +97,14 @@ class Tuner:
             'mosaic': (0.0, 1.0),  # image mixup (probability)
             'mixup': (0.0, 1.0),  # image mixup (probability)
             'copy_paste': (0.0, 1.0)}  # segment copy-paste (probability)
-        self.args = get_cfg(overrides=config_dict)
-        self.tune_dir = get_results_dir(self.args, name='tune')
+        self.args = get_cfg(overrides=args)
+        self.tune_dir = get_save_dir(self.args, name='tune')
         self.tune_csv = self.tune_dir / 'tune_results.csv'
         self.callbacks = _callbacks or callbacks.get_default_callbacks()
         self.prefix = colorstr('Tuner: ')
         callbacks.add_integration_callbacks(self)
         LOGGER.info(f"{self.prefix}Initialized Tuner instance with 'tune_dir={self.tune_dir}'\n"
-                    f'{self.prefix}💡 Learn about tuning at https://docs.yolov8_pytorch.com/guides/hyperparameter-tuning')
+                    f'{self.prefix}💡 Learn about tuning at https://docs.ultralytics.com/guides/hyperparameter-tuning')
 
     def _mutate(self, parent='single', n=5, mutation=0.8, sigma=0.2):
         """
@@ -182,7 +182,7 @@ class Tuner:
 
             metrics = {}
             train_args = {**vars(self.args), **mutated_hyp}
-            save_dir = get_results_dir(get_cfg(train_args))
+            save_dir = get_save_dir(get_cfg(train_args))
             weights_dir = save_dir / 'weights'
             ckpt_file = weights_dir / ('best.pt' if (weights_dir / 'best.pt').exists() else 'last.pt')
             try:

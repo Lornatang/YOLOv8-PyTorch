@@ -198,12 +198,13 @@ def add_integration_callbacks(instance):
     callbacks_list = []
 
     # Load training callbacks
-    if 'Trainer' in instance.__class__.__name__:
-        from .tensorboard import callbacks as tb_cb
-        from .wb import callbacks as wb_cb
+    if "Trainer" in instance.__class__.__name__:
         from .clearml import callbacks as clear_cb
         from .neptune import callbacks as neptune_cb
-        callbacks_list.extend([tb_cb, wb_cb, clear_cb, neptune_cb])
+        from .raytune import callbacks as raytune_cb
+        from .tensorboard import callbacks as tb_cb
+        from .wb import callbacks as wb_cb
+        callbacks_list.extend([clear_cb, neptune_cb, raytune_cb, tb_cb, wb_cb])
 
     # Add the callbacks to the callbacks dictionary
     for callbacks in callbacks_list:

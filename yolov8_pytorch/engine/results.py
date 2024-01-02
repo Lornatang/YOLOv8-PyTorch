@@ -2,7 +2,7 @@
 """
 Ultralytics Results, Boxes and Masks classes for handling inference results.
 
-Usage: See https://docs.yolov8_pytorch.com/modes/predict/
+Usage: See https://docs.ultralytics.com/modes/predict/
 """
 
 from copy import deepcopy

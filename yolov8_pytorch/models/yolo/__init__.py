@@ -1,7 +1,7 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
-from yolov8_pytorch.models.yolo import detect, segment
+from yolov8_pytorch.models.yolo import classify, detect, pose, segment
 
-from .model import YOLOEngine
+from .model import YOLO
 
-__all__ = 'segment', 'detect', 'YOLOEngine'
+__all__ = 'classify', 'segment', 'detect', 'pose', 'YOLO'
