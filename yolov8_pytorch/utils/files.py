@@ -82,9 +82,8 @@ def spaces_in_path(path):
         yield path
 
 
-def increment_path(path, exist_ok=False, sep='', mkdir=False):
-    """
-    Increments a file or directory path, i.e. runs/exp --> runs/exp{sep}2, runs/exp{sep}3, ... etc.
+def increment_path(path: str, exist_ok: bool = False):
+    r"""Increments a file or directory path, i.e. runs/exp --> runs/exp{sep}2, runs/exp{sep}3, ... etc.
 
     If the path exists and exist_ok is not set to True, the path will be incremented by appending a number and sep to
     the end of the path. If the path is a file, the file extension will be preserved. If the path is a directory, the
@@ -94,25 +93,21 @@ def increment_path(path, exist_ok=False, sep='', mkdir=False):
     Args:
         path (str, pathlib.Path): Path to increment.
         exist_ok (bool, optional): If True, the path will not be incremented and returned as-is. Defaults to False.
-        sep (str, optional): Separator to use between the path and the incrementation number. Defaults to ''.
-        mkdir (bool, optional): Create a directory if it does not exist. Defaults to False.
 
     Returns:
         (pathlib.Path): Incremented path.
     """
-    path = Path(path)  # os-agnostic
+    path = Path(path)
     if path.exists() and not exist_ok:
         path, suffix = (path.with_suffix(''), path.suffix) if path.is_file() else (path, '')
 
-        # Method 1
         for n in range(2, 9999):
-            p = f"{path}{sep}{n}{suffix}"  # increment path
-            if not os.path.exists(p):
+            new_path = f"{path}{n}{suffix}"  # increment path
+            if not os.path.exists(new_path):
                 break
-        path = Path(p)
+        path = Path(new_path)
 
-    if mkdir:
-        path.mkdir(parents=True, exist_ok=True)  # make directory
+    path.mkdir(parents=True, exist_ok=True)  # make directory
 
     return path
 

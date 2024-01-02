@@ -767,3 +767,13 @@ def guess_model_task(model):
     LOGGER.warning("WARNING ⚠️ Unable to automatically guess model task, assuming 'task=detect'. "
                    "Explicitly define task for your model, i.e. 'task=detect', 'segment', 'classify', or 'pose'.")
     return 'detect'  # assume detect
+
+
+def load_weights(weights_path: str | Path, device: torch.device = None, fused: bool = False):
+    if isinstance(weights_path, str):
+        weights_path = Path(weights_path)
+
+    checkpoint = torch.load(weights_path, map_location="cpu" if device is None else device)
+    weights = (checkpoint.get("ema_model") or checkpoint["model"]).to(device).float()
+    weights = weights.fuse().eval() if fused and hasattr(weights, "fused") else weights.eval()
+    return weights

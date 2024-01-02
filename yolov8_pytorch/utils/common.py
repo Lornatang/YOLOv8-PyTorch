@@ -35,13 +35,13 @@ def get_results_dir(config_dict: DictConfig, name: str = None) -> Path:
         (Path): The save results directory.
     """
     if config_dict.get("results_dir") is not None:
-        save_dir = config_dict.save_dir
+        results_dir = config_dict.results_dir
     else:
         project = config_dict.project or ("tests/tmp/runs" if TESTS_RUNNING else RUNS_DIR) / config_dict.task
         name = name or config_dict.name or f"{config_dict.mode}"
-        save_dir = increment_path(Path(project) / name, exist_ok=config_dict.exist_ok if RANK in (-1, 0) else True)
+        results_dir = increment_path(Path(project) / name, exist_ok=config_dict.exist_ok if RANK in (-1, 0) else True)
 
-    return Path(save_dir)
+    return Path(results_dir)
 
 
 def increment_path(path: str, exist_ok: bool = False):

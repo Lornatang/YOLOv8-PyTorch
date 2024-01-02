@@ -24,7 +24,7 @@ import time
 import numpy as np
 import torch
 
-from yolov8_pytorch.cfg import get_cfg, get_save_dir
+from yolov8_pytorch.cfg import get_cfg, get_results_dir
 from yolov8_pytorch.utils import DEFAULT_CFG, LOGGER, callbacks, colorstr, remove_colorstr, yaml_print, yaml_save
 from yolov8_pytorch.utils.plotting import plot_tune_results
 
@@ -98,7 +98,7 @@ class Tuner:
             'mixup': (0.0, 1.0),  # image mixup (probability)
             'copy_paste': (0.0, 1.0)}  # segment copy-paste (probability)
         self.args = get_cfg(overrides=config_dict)
-        self.tune_dir = get_save_dir(self.args, name='tune')
+        self.tune_dir = get_results_dir(self.args, name='tune')
         self.tune_csv = self.tune_dir / 'tune_results.csv'
         self.callbacks = _callbacks or callbacks.get_default_callbacks()
         self.prefix = colorstr('Tuner: ')
@@ -182,7 +182,7 @@ class Tuner:
 
             metrics = {}
             train_args = {**vars(self.args), **mutated_hyp}
-            save_dir = get_save_dir(get_cfg(train_args))
+            save_dir = get_results_dir(get_cfg(train_args))
             weights_dir = save_dir / 'weights'
             ckpt_file = weights_dir / ('best.pt' if (weights_dir / 'best.pt').exists() else 'last.pt')
             try:

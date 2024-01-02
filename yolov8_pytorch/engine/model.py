@@ -16,14 +16,14 @@ from pathlib import Path
 from typing import Any
 
 from omegaconf import DictConfig
+from torch import nn
 
-from yolov8_pytorch.nn.tasks import nn
+from yolov8_pytorch.nn.tasks import load_weights
 from yolov8_pytorch.utils import RANK, callbacks
 from yolov8_pytorch.utils.benchmarks import benchmark
-from yolov8_pytorch.utils.common import load_weights
 from yolov8_pytorch.utils.tuner import run_ray_tune
-from .tuner import Tuner
 from .exporter import Exporter
+from .tuner import Tuner
 
 logger = logging.getLogger(__name__)
 

@@ -21,7 +21,7 @@ from omegaconf import DictConfig
 from torch import distributed as dist
 from torch import nn, optim
 
-from yolov8_pytorch.cfg import get_cfg, get_save_dir
+from yolov8_pytorch.cfg import get_cfg, get_results_dir
 from yolov8_pytorch.data.utils import check_cls_dataset, check_det_dataset
 from yolov8_pytorch.nn.tasks import attempt_load_one_weight, attempt_load_weights
 from yolov8_pytorch.utils import (LOGGER, RANK, TQDM, __version__, callbacks, clean_url, colorstr, emojis,
@@ -90,7 +90,7 @@ class BaseTrainer:
         init_seeds(self.args.seed + 1 + RANK, deterministic=self.args.deterministic)
 
         # Dirs
-        self.save_dir = get_save_dir(self.args)
+        self.save_dir = get_results_dir(self.args)
         self.args.name = self.save_dir.name  # update name for loggers
         self.wdir = self.save_dir / 'weights'  # weights dir
         if RANK in (-1, 0):

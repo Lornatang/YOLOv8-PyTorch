@@ -5,8 +5,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, List, Union
 
-from yolov8_pytorch.utils import (DEFAULT_CFG_DICT, LOGGER, RANK, ROOT, RUNS_DIR,
+from yolov8_pytorch.utils import (DEFAULT_CFG_DICT, LOGGER, RANK, RUNS_DIR,
                                   SETTINGS, SETTINGS_YAML, TESTS_RUNNING, IterableSimpleNamespace, colorstr, deprecation_warn, yaml_load, yaml_print)
+from yolov8_pytorch.utils.files import increment_path
 
 # Define valid tasks and modes
 MODES = 'train', 'val', 'predict', 'export', 'benchmark'
@@ -105,19 +106,24 @@ def get_cfg(cfg: Union[str, Path, Dict, SimpleNamespace] = DEFAULT_CFG_DICT, ove
     return IterableSimpleNamespace(**cfg)
 
 
-def get_save_dir(args, name=None):
-    """Return save_dir as created from train/val/predict arguments."""
+def get_results_dir(config_dict: DictConfig, name: str = None) -> Path:
+    r"""Automatically generate a save_dir based on the config_dict.
 
-    if getattr(args, 'save_dir', None):
-        save_dir = args.save_dir
+    Args:
+        config_dict (DictConfig): The configuration dictionary.
+        name (str, optional): The name of the directory. Defaults to None.
+
+    Returns:
+        (Path): The save results directory.
+    """
+    if config_dict.get("results_dir") is not None:
+        results_dir = config_dict.results_dir
     else:
-        from yolov8_pytorch.utils.files import increment_path
+        project = config_dict.project or ("tests/tmp/runs" if TESTS_RUNNING else RUNS_DIR) / config_dict.task
+        name = name or config_dict.name or f"{config_dict.mode}"
+        results_dir = increment_path(Path(project) / name, exist_ok=config_dict.exist_ok if RANK in (-1, 0) else True)
 
-        project = args.project or (ROOT.parent / 'tests/tmp/runs' if TESTS_RUNNING else RUNS_DIR) / args.task
-        name = name or args.name or f'{args.mode}'
-        save_dir = increment_path(Path(project) / name, exist_ok=args.exist_ok if RANK in (-1, 0) else True)
-
-    return Path(save_dir)
+    return Path(results_dir)
 
 
 def _handle_deprecation(custom):

@@ -2,7 +2,7 @@
 
 import subprocess
 
-from yolov8_pytorch.cfg import TASK2DATA, TASK2METRIC, get_save_dir
+from yolov8_pytorch.cfg import TASK2DATA, TASK2METRIC, get_results_dir
 from yolov8_pytorch.utils import DEFAULT_CFG, DEFAULT_CFG_DICT, LOGGER, NUM_THREADS
 
 
@@ -130,7 +130,7 @@ def run_ray_tune(model,
     tuner_callbacks = [WandbLoggerCallback(project='YOLOv8-tune')] if wandb else []
 
     # Create the Ray Tune hyperparameter search tuner
-    tune_dir = get_save_dir(DEFAULT_CFG, name='tune').resolve()  # must be absolute dir
+    tune_dir = get_results_dir(DEFAULT_CFG, name='tune').resolve()  # must be absolute dir
     tune_dir.mkdir(parents=True, exist_ok=True)
     tuner = tune.Tuner(trainable_with_resources,
                        param_space=space,

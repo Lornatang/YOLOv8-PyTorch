@@ -1,4 +1,4 @@
-PROJECT_NAME: "yolov8_pytorch_old"  # The repo name
+PROJECT_NAME: "yolov8_pytorch"  # The repo name
 EXP_NAME: "YOLOv8n-COCO-Detection"  # The name of this experiment
 SEED: 42  # random number seed
 DEVICE_ID: "cuda"  # run device models
@@ -42,7 +42,7 @@ MODEL:
     [ [ 15, 18, 21 ], 1, "Detect", [ "num_classes" ] ]
   ]
 
-TRAIN:
+ARGS:
   # Train settings -------------------------------------------------------------------------------------------------------
   model:  # (str, optional) path to model file, i.e. yolov8n.pt, yolov8n.yaml
   data:  yolov8_pytorch/cfg/datasets/ours.yaml
